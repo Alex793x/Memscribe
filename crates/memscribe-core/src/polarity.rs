@@ -59,24 +59,65 @@ const PROHIBIT: &[&str] = &[
 /// "won't depend on Z" read as bans even when a later clause offers a
 /// substitution ("… use W instead").
 const BAN_NEGATORS: &[&str] = &[
-    "never", "do not", "don't", "must not", "mustn't", "will not", "won't",
-    "no longer", "cannot", "can't", "shall not", "should not", "shouldn't",
+    "never",
+    "do not",
+    "don't",
+    "must not",
+    "mustn't",
+    "will not",
+    "won't",
+    "no longer",
+    "cannot",
+    "can't",
+    "shall not",
+    "should not",
+    "shouldn't",
     "may not",
 ];
 
 /// Removal verbs that make a ban only when they LEAD the clause (primary action).
 const REMOVAL_LEAD: &[&str] = &[
-    "drop", "dropped", "remove", "removed", "delete", "deleted", "deprecate",
-    "deprecated", "disable", "disabled", "ban", "banned", "kill", "killed",
-    "strip", "stripped", "purge", "purged", "revert", "reverted", "eliminate",
-    "eliminated", "forbid", "forbidden", "retire", "retired",
+    "drop",
+    "dropped",
+    "remove",
+    "removed",
+    "delete",
+    "deleted",
+    "deprecate",
+    "deprecated",
+    "disable",
+    "disabled",
+    "ban",
+    "banned",
+    "kill",
+    "killed",
+    "strip",
+    "stripped",
+    "purge",
+    "purged",
+    "revert",
+    "reverted",
+    "eliminate",
+    "eliminated",
+    "forbid",
+    "forbidden",
+    "retire",
+    "retired",
 ];
 
 /// Phrases that look negative but assert no prohibition — suppress false bans.
 const PSEUDO_NEGATION: &[&str] = &[
-    "no change", "not certain", "not sure", "cannot rule out", "can't rule out",
-    "not clear", "no need to remove", "without removing", "instead of removing",
-    "rather than removing", "no longer needed?",
+    "no change",
+    "not certain",
+    "not sure",
+    "cannot rule out",
+    "can't rule out",
+    "not clear",
+    "no need to remove",
+    "without removing",
+    "instead of removing",
+    "rather than removing",
+    "no longer needed?",
 ];
 
 /// Imperative decision verbs that can HEAD an independent decision clause. Used by
@@ -84,12 +125,52 @@ const PSEUDO_NEGATION: &[&str] = &[
 /// complete decision (so "use X, drop Y, add Z" splits into three) versus a mere
 /// object in a list ("add auth client, Convex client, …" stays one decision).
 const DECISION_VERB_HEAD: &[&str] = &[
-    "use", "add", "drop", "remove", "switch", "adopt", "replace", "migrate",
-    "wire", "port", "rebuild", "rename", "split", "merge", "move", "enable",
-    "disable", "introduce", "expose", "make", "keep", "cache", "gate", "persist",
-    "bypass", "resolve", "fix", "update", "refactor", "implement", "create",
-    "delete", "forward", "strip", "purge", "revert", "require", "allow", "ship",
-    "default", "deprecate", "support", "store", "swap", "pin", "bound",
+    "use",
+    "add",
+    "drop",
+    "remove",
+    "switch",
+    "adopt",
+    "replace",
+    "migrate",
+    "wire",
+    "port",
+    "rebuild",
+    "rename",
+    "split",
+    "merge",
+    "move",
+    "enable",
+    "disable",
+    "introduce",
+    "expose",
+    "make",
+    "keep",
+    "cache",
+    "gate",
+    "persist",
+    "bypass",
+    "resolve",
+    "fix",
+    "update",
+    "refactor",
+    "implement",
+    "create",
+    "delete",
+    "forward",
+    "strip",
+    "purge",
+    "revert",
+    "require",
+    "allow",
+    "ship",
+    "default",
+    "deprecate",
+    "support",
+    "store",
+    "swap",
+    "pin",
+    "bound",
 ];
 
 /// Is `seg` an independent decision clause (starts with a decision verb, or is an
@@ -250,7 +331,10 @@ pub fn analyze_polarity(text: &str) -> Polarity {
     }
 
     // 4. No prohibition and no clean contrast — a plain positive decision.
-    Polarity { is_ban: false, options: Vec::new() }
+    Polarity {
+        is_ban: false,
+        options: Vec::new(),
+    }
 }
 
 /// A ban verdict carrying its single ruled-out target (dropped if junk).
@@ -258,22 +342,38 @@ fn ban(target: String) -> Polarity {
     let options = if target.is_empty() || target.len() > 60 {
         Vec::new()
     } else {
-        vec![Opt { text: target, chosen: true }]
+        vec![Opt {
+            text: target,
+            chosen: true,
+        }]
     };
-    Polarity { is_ban: true, options }
+    Polarity {
+        is_ban: true,
+        options,
+    }
 }
 
 /// A positive-choice verdict with [chosen, rejected] (dropped if either is junk).
 fn positive(chosen: String, rejected: String) -> Polarity {
-    let options = if chosen.is_empty() || rejected.is_empty() || chosen.len() > 60 || rejected.len() > 60 {
-        Vec::new()
-    } else {
-        vec![
-            Opt { text: chosen, chosen: true },
-            Opt { text: rejected, chosen: false },
-        ]
-    };
-    Polarity { is_ban: false, options }
+    let options =
+        if chosen.is_empty() || rejected.is_empty() || chosen.len() > 60 || rejected.len() > 60 {
+            Vec::new()
+        } else {
+            vec![
+                Opt {
+                    text: chosen,
+                    chosen: true,
+                },
+                Opt {
+                    text: rejected,
+                    chosen: false,
+                },
+            ]
+        };
+    Polarity {
+        is_ban: false,
+        options,
+    }
 }
 
 /// The chosen alternative on the LEFT of a contrast pivot. Prefer the object of a
@@ -293,7 +393,14 @@ fn chosen_head(left: &str) -> String {
             return tail;
         }
     }
-    const CHOOSE_VERBS: &[&str] = &["use ", "adopt ", "switch to ", "choose ", "pick ", "go with "];
+    const CHOOSE_VERBS: &[&str] = &[
+        "use ",
+        "adopt ",
+        "switch to ",
+        "choose ",
+        "pick ",
+        "go with ",
+    ];
     for v in CHOOSE_VERBS {
         if let Some(i) = lc.find(v) {
             let tail = clip_clause(&left[(i + v.len()).min(left.len())..]);
@@ -316,7 +423,11 @@ fn clip_clause(s: &str) -> String {
         .or_else(|| s.find(" since "))
         .or_else(|| s.find(" so "))
         .unwrap_or(s.len());
-    s[..end].trim().trim_matches(['"', '`', '\'', ':']).trim().to_string()
+    s[..end]
+        .trim()
+        .trim_matches(['"', '`', '\'', ':'])
+        .trim()
+        .to_string()
 }
 
 #[cfg(test)]
@@ -325,11 +436,26 @@ mod tests {
 
     #[test]
     fn instead_of_is_a_positive_choice_not_a_ban() {
-        let p = analyze_polarity("resolves `cargo` to `rustup-init` instead of the installed cargo");
+        let p =
+            analyze_polarity("resolves `cargo` to `rustup-init` instead of the installed cargo");
         assert!(!p.is_ban, "‘instead of’ is a substitution, never a ban");
-        let chosen: Vec<_> = p.options.iter().filter(|o| o.chosen).map(|o| o.text.as_str()).collect();
-        let rejected: Vec<_> = p.options.iter().filter(|o| !o.chosen).map(|o| o.text.as_str()).collect();
-        assert_eq!(chosen, vec!["rustup-init"], "chosen = the resolution target");
+        let chosen: Vec<_> = p
+            .options
+            .iter()
+            .filter(|o| o.chosen)
+            .map(|o| o.text.as_str())
+            .collect();
+        let rejected: Vec<_> = p
+            .options
+            .iter()
+            .filter(|o| !o.chosen)
+            .map(|o| o.text.as_str())
+            .collect();
+        assert_eq!(
+            chosen,
+            vec!["rustup-init"],
+            "chosen = the resolution target"
+        );
         assert_eq!(rejected, vec!["the installed cargo"]);
     }
 
@@ -337,8 +463,20 @@ mod tests {
     fn use_x_instead_of_y_orients_correctly() {
         let p = analyze_polarity("Use Postgres instead of MySQL for the orders service");
         assert!(!p.is_ban);
-        assert_eq!(p.options[0], Opt { text: "Postgres".into(), chosen: true });
-        assert_eq!(p.options[1], Opt { text: "MySQL".into(), chosen: false });
+        assert_eq!(
+            p.options[0],
+            Opt {
+                text: "Postgres".into(),
+                chosen: true
+            }
+        );
+        assert_eq!(
+            p.options[1],
+            Opt {
+                text: "MySQL".into(),
+                chosen: false
+            }
+        );
     }
 
     #[test]
@@ -363,7 +501,13 @@ mod tests {
     fn leading_removal_verb_is_a_ban() {
         let p = analyze_polarity("drop cross-compilation targets (ort-sys incompatible)");
         assert!(p.is_ban);
-        assert_eq!(p.options, vec![Opt { text: "cross-compilation targets".into(), chosen: true }]);
+        assert_eq!(
+            p.options,
+            vec![Opt {
+                text: "cross-compilation targets".into(),
+                chosen: true
+            }]
+        );
     }
 
     #[test]
@@ -384,7 +528,10 @@ mod tests {
             "not sure if we should remove the cache",
             "cannot rule out a Postgres migration later",
         ] {
-            assert!(!analyze_polarity(s).is_ban, "pseudo-negation must not ban: {s}");
+            assert!(
+                !analyze_polarity(s).is_ban,
+                "pseudo-negation must not ban: {s}"
+            );
         }
     }
 
@@ -404,7 +551,9 @@ mod tests {
     #[test]
     fn bundle_splitter_splits_multi_clause_keeps_lists() {
         // Every segment is its own decision clause → split into N.
-        let parts = split_coordinated("use SystemTime instead of chrono, drop the cron job, and add a retry");
+        let parts = split_coordinated(
+            "use SystemTime instead of chrono, drop the cron job, and add a retry",
+        );
         assert_eq!(parts.len(), 3);
         assert_eq!(parts[0], "use SystemTime instead of chrono");
         assert_eq!(parts[2], "add a retry");
@@ -416,7 +565,10 @@ mod tests {
         // noun-phrase bundle → not split.
         assert_eq!(split_coordinated("BM25 + Tantivy + RRF update").len(), 1);
         // brace expansion never split.
-        assert_eq!(split_coordinated("/api/device/{code,poll,auth,heartbeat} routes").len(), 1);
+        assert_eq!(
+            split_coordinated("/api/device/{code,poll,auth,heartbeat} routes").len(),
+            1
+        );
         // a plain single decision is returned as-is.
         assert_eq!(split_coordinated("drop cross-compilation targets").len(), 1);
     }

@@ -92,7 +92,11 @@ impl TranscriptAdapter for OpenCodeAdapter {
             if db != ":memory:" {
                 let p = PathBuf::from(&db);
                 if p.is_absolute() {
-                    return if p.is_file() { vec![handle_for(p)] } else { Vec::new() };
+                    return if p.is_file() {
+                        vec![handle_for(p)]
+                    } else {
+                        Vec::new()
+                    };
                 }
             }
         }
@@ -141,11 +145,16 @@ impl TranscriptAdapter for OpenCodeAdapter {
     }
 
     fn schema_fingerprint(&self, sample: &RawRecord) -> SchemaVariant {
-        match util::parse_json_line(sample).as_ref().and_then(Value::as_object) {
+        match util::parse_json_line(sample)
+            .as_ref()
+            .and_then(Value::as_object)
+        {
             Some(obj) if obj.get("kind").and_then(Value::as_str) == Some("session_start") => {
                 SchemaVariant::certain(SOURCE, "opencode/session-v1")
             }
-            Some(obj) if obj.get("role").is_some() => SchemaVariant::certain(SOURCE, "opencode/message-v1"),
+            Some(obj) if obj.get("role").is_some() => {
+                SchemaVariant::certain(SOURCE, "opencode/message-v1")
+            }
             Some(_) => SchemaVariant::unknown(SOURCE),
             None => SchemaVariant::unknown(SOURCE),
         }
@@ -180,13 +189,9 @@ fn read_native(path: &Path) -> rusqlite::Result<Vec<Value>> {
     )?;
 
     let mut records = Vec::new();
-    let mut sess_stmt = conn.prepare(
-        "SELECT id, title, time_created FROM session ORDER BY id",
-    )?;
+    let mut sess_stmt = conn.prepare("SELECT id, title, time_created FROM session ORDER BY id")?;
     let sessions: Vec<(String, Option<String>, Option<i64>)> = sess_stmt
-        .query_map([], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        })?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
         .filter_map(std::result::Result::ok)
         .collect();
 
@@ -202,21 +207,28 @@ fn read_native(path: &Path) -> rusqlite::Result<Vec<Value>> {
             "SELECT id, data, time_created FROM message WHERE session_id = ?1 ORDER BY id",
         )?;
         let messages: Vec<(String, String, Option<i64>)> = msg_stmt
-            .query_map([&session_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+            .query_map([&session_id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?
             .filter_map(std::result::Result::ok)
             .collect();
 
-        let mut part_stmt = conn.prepare(
-            "SELECT id, message_id, data FROM part WHERE session_id = ?1 ORDER BY id",
-        )?;
+        let mut part_stmt = conn
+            .prepare("SELECT id, message_id, data FROM part WHERE session_id = ?1 ORDER BY id")?;
         let parts: Vec<(String, String, String)> = part_stmt
-            .query_map([&session_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+            .query_map([&session_id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?
             .filter_map(std::result::Result::ok)
             .collect();
 
         for (msg_id, data_json, ts) in messages {
-            let Ok(data) = serde_json::from_str::<Value>(&data_json) else { continue };
-            let Some(role) = data.get("role").and_then(Value::as_str) else { continue };
+            let Ok(data) = serde_json::from_str::<Value>(&data_json) else {
+                continue;
+            };
+            let Some(role) = data.get("role").and_then(Value::as_str) else {
+                continue;
+            };
 
             let mut text_buf = String::new();
             let mut tool_calls = Vec::new();
@@ -225,7 +237,9 @@ fn read_native(path: &Path) -> rusqlite::Result<Vec<Value>> {
                 if part_msg_id != &msg_id {
                     continue;
                 }
-                let Ok(part) = serde_json::from_str::<Value>(part_json) else { continue };
+                let Ok(part) = serde_json::from_str::<Value>(part_json) else {
+                    continue;
+                };
                 match part.get("type").and_then(Value::as_str) {
                     Some("text") => {
                         if let Some(t) = part.get("text").and_then(Value::as_str) {
@@ -241,18 +255,24 @@ fn read_native(path: &Path) -> rusqlite::Result<Vec<Value>> {
                             .and_then(Value::as_str)
                             .unwrap_or_default()
                             .to_string();
-                        let name = part.get("tool").and_then(Value::as_str).unwrap_or_default().to_string();
+                        let name = part
+                            .get("tool")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string();
                         let state = part.get("state").cloned().unwrap_or(Value::Null);
                         let input = state.get("input").cloned().unwrap_or(Value::Null);
                         tool_calls.push(json!({ "id": call_id, "name": name, "args": input }));
                         match state.get("status").and_then(Value::as_str) {
                             Some("completed") => {
                                 let output = state.get("output").cloned().unwrap_or(Value::Null);
-                                tool_results.push(json!({ "id": call_id, "ok": true, "output": output }));
+                                tool_results
+                                    .push(json!({ "id": call_id, "ok": true, "output": output }));
                             }
                             Some("error") => {
                                 let output = state.get("error").cloned().unwrap_or(Value::Null);
-                                tool_results.push(json!({ "id": call_id, "ok": false, "output": output }));
+                                tool_results
+                                    .push(json!({ "id": call_id, "ok": false, "output": output }));
                             }
                             _ => {} // pending/running: no result yet
                         }
@@ -290,7 +310,10 @@ fn read_opencode_db(path: &Path) -> Result<Vec<RawRecord>, ParseError> {
         .enumerate()
         .map(|(i, v)| {
             let line = serde_json::to_string(&v).unwrap_or_default();
-            RawRecord::from_line(&line, SourceLocation::new(path_str.clone(), 0, i as u64 + 1))
+            RawRecord::from_line(
+                &line,
+                SourceLocation::new(path_str.clone(), 0, i as u64 + 1),
+            )
         })
         .collect())
 }
@@ -344,7 +367,11 @@ fn parse_message(
         return Vec::new();
     }
     let ts = util::ts_from(&Value::Object(obj.clone()), &["ts", "timestamp"]);
-    let text = obj.get("text").and_then(Value::as_str).unwrap_or("").to_string();
+    let text = obj
+        .get("text")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
 
     let mut events = Vec::new();
     let kind = match role {
@@ -359,20 +386,41 @@ fn parse_message(
             usage: None::<Usage>,
             parts: vec![Part::Text { text }],
         },
-        _ => return vec![util::unknown_event(SOURCE, ctx, raw, Value::Object(obj.clone()))],
+        _ => {
+            return vec![util::unknown_event(
+                SOURCE,
+                ctx,
+                raw,
+                Value::Object(obj.clone()),
+            )]
+        }
     };
-    events.push(util::mk_event(SOURCE, ctx, raw, event_id.clone(), None, ts, kind));
+    events.push(util::mk_event(
+        SOURCE,
+        ctx,
+        raw,
+        event_id.clone(),
+        None,
+        ts,
+        kind,
+    ));
 
     if let Some(calls) = obj.get("toolCalls").and_then(Value::as_array) {
         let results = obj.get("toolResults").and_then(Value::as_array);
         for (i, call) in calls.iter().enumerate() {
-            let Some(call_obj) = call.as_object() else { continue };
+            let Some(call_obj) = call.as_object() else {
+                continue;
+            };
             let call_id = call_obj
                 .get("id")
                 .and_then(Value::as_str)
                 .map(str::to_string)
                 .unwrap_or_else(|| format!("{event_id}:tool:{i}"));
-            let name = call_obj.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+            let name = call_obj
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             let args = call_obj.get("args").cloned().unwrap_or(Value::Null);
             let call_ev_id = format!("{call_id}:call");
             if ctx.first_seen(&call_ev_id) {
@@ -383,12 +431,17 @@ fn parse_message(
                     call_ev_id,
                     Some(event_id.clone()),
                     ts,
-                    EventKind::ToolCall { call_id: call_id.clone(), name, args },
+                    EventKind::ToolCall {
+                        call_id: call_id.clone(),
+                        name,
+                        args,
+                    },
                 ));
             }
 
             if let Some(result) = results.and_then(|rs| {
-                rs.iter().find(|r| r.get("id").and_then(Value::as_str) == Some(call_id.as_str()))
+                rs.iter()
+                    .find(|r| r.get("id").and_then(Value::as_str) == Some(call_id.as_str()))
             }) {
                 let ok = result.get("ok").and_then(Value::as_bool).unwrap_or(true);
                 let output = result.get("output").cloned().unwrap_or(Value::Null);
@@ -402,7 +455,11 @@ fn parse_message(
                         result_ev_id,
                         Some(event_id.clone()),
                         ts,
-                        EventKind::ToolResult { call_id, ok, output },
+                        EventKind::ToolResult {
+                            call_id,
+                            ok,
+                            output,
+                        },
                     ));
                 }
             }
@@ -438,7 +495,10 @@ mod tests {
         std::fs::write(&custom, b"").unwrap();
 
         std::env::set_var("OPENCODE_DB", &custom);
-        let cfg = DiscoverCfg { home: Some(tmp.path().to_path_buf()), ..Default::default() };
+        let cfg = DiscoverCfg {
+            home: Some(tmp.path().to_path_buf()),
+            ..Default::default()
+        };
         let handles = OpenCodeAdapter.discover(&cfg);
         std::env::remove_var("OPENCODE_DB");
 
@@ -454,7 +514,10 @@ mod tests {
         std::fs::create_dir_all(db.parent().unwrap()).unwrap();
         std::fs::write(&db, b"").unwrap();
 
-        let cfg = DiscoverCfg { home: Some(tmp.path().to_path_buf()), ..Default::default() };
+        let cfg = DiscoverCfg {
+            home: Some(tmp.path().to_path_buf()),
+            ..Default::default()
+        };
         let handles = OpenCodeAdapter.discover(&cfg);
         std::env::remove_var("OPENCODE_DB");
 
@@ -474,7 +537,10 @@ mod tests {
         std::fs::write(&db, b"").unwrap();
 
         std::env::set_var("XDG_DATA_HOME", &xdg);
-        let cfg = DiscoverCfg { home: Some(tmp.path().to_path_buf()), ..Default::default() };
+        let cfg = DiscoverCfg {
+            home: Some(tmp.path().to_path_buf()),
+            ..Default::default()
+        };
         let handles = OpenCodeAdapter.discover(&cfg);
         std::env::remove_var("XDG_DATA_HOME");
 
@@ -490,7 +556,10 @@ mod tests {
         std::fs::write(&db, b"").unwrap();
 
         std::env::remove_var("XDG_DATA_HOME");
-        let cfg = DiscoverCfg { home: Some(tmp.path().to_path_buf()), ..Default::default() };
+        let cfg = DiscoverCfg {
+            home: Some(tmp.path().to_path_buf()),
+            ..Default::default()
+        };
         let handles = OpenCodeAdapter.discover(&cfg);
 
         assert_eq!(handles.len(), 1);
@@ -511,10 +580,19 @@ mod tests {
         assert_eq!(ctx.session_id.as_deref(), Some("ses_1"));
         assert_eq!(
             tags(&events),
-            ["session_start", "user_turn", "assistant_turn", "tool_call", "tool_result"]
+            [
+                "session_start",
+                "user_turn",
+                "assistant_turn",
+                "tool_call",
+                "tool_result"
+            ]
         );
         assert!(matches!(&events[3].kind, EventKind::ToolCall { name, .. } if name == "edit"));
-        assert!(matches!(&events[4].kind, EventKind::ToolResult { ok: true, .. }));
+        assert!(matches!(
+            &events[4].kind,
+            EventKind::ToolResult { ok: true, .. }
+        ));
     }
 
     #[test]
@@ -557,11 +635,24 @@ mod tests {
         }
         assert_eq!(
             tags(&events),
-            ["session_start", "user_turn", "assistant_turn", "tool_call", "tool_result"]
+            [
+                "session_start",
+                "user_turn",
+                "assistant_turn",
+                "tool_call",
+                "tool_result"
+            ]
         );
-        assert!(matches!(&events[1].kind, EventKind::UserTurn { text, .. } if text == "Switch to Postgres"));
-        assert!(matches!(&events[2].kind, EventKind::AssistantTurn { text, .. } if text == "Switching now."));
-        assert!(matches!(&events[4].kind, EventKind::ToolResult { ok: true, .. }));
+        assert!(
+            matches!(&events[1].kind, EventKind::UserTurn { text, .. } if text == "Switch to Postgres")
+        );
+        assert!(
+            matches!(&events[2].kind, EventKind::AssistantTurn { text, .. } if text == "Switching now.")
+        );
+        assert!(matches!(
+            &events[4].kind,
+            EventKind::ToolResult { ok: true, .. }
+        ));
     }
 
     #[test]
@@ -584,7 +675,12 @@ mod tests {
         .unwrap();
         drop(conn);
 
-        let handle = TranscriptHandle { path: db_path, source: SOURCE, session_hint: None, compressed: false };
+        let handle = TranscriptHandle {
+            path: db_path,
+            source: SOURCE,
+            session_hint: None,
+            compressed: false,
+        };
         let records = OpenCodeAdapter.read_native(&handle).expect("read ok");
         let mut ctx = ParseCtx::new();
         let mut events = Vec::new();

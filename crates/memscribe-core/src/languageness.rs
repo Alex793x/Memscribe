@@ -100,7 +100,11 @@ mod tests {
             "{\"k\":1,\"v\":[2,3],\"q\":null,\"z\":{\"a\":true}}",
             "==>>||::##@@!!&&%%^^$$((**))++",
         ] {
-            assert!(is_garbage(s), "garbage not detected: {s} -> {}", languageness(s));
+            assert!(
+                is_garbage(s),
+                "garbage not detected: {s} -> {}",
+                languageness(s)
+            );
         }
     }
 

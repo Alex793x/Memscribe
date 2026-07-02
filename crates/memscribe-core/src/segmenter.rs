@@ -165,8 +165,13 @@ impl Segmenter for DefaultSegmenter {
                     // substitution, no longer mis-flags a ban. (Marker-based
                     // `gate.is_ban` was over/under-eager.)
                     let is_ban = crate::polarity::analyze_polarity(&epitome).is_ban;
-                    let score =
-                        score_decision_candidacy(&epitome, &markers, gate, is_ban, session_has_edit);
+                    let score = score_decision_candidacy(
+                        &epitome,
+                        &markers,
+                        gate,
+                        is_ban,
+                        session_has_edit,
+                    );
                     let Some(fact_status) = tier_for(score) else {
                         continue; // below the keep threshold — genuine noise
                     };
@@ -226,8 +231,13 @@ impl Segmenter for DefaultSegmenter {
                         continue;
                     }
                     let is_ban = crate::polarity::analyze_polarity(&epitome).is_ban;
-                    let score =
-                        score_decision_candidacy(&epitome, &markers, gate, is_ban, session_has_edit);
+                    let score = score_decision_candidacy(
+                        &epitome,
+                        &markers,
+                        gate,
+                        is_ban,
+                        session_has_edit,
+                    );
                     let Some(fact_status) = tier_for(score) else {
                         continue;
                     };
@@ -517,7 +527,17 @@ fn lead_alpha(w: &str) -> String {
 fn is_leading_conjunction(w: &str) -> bool {
     matches!(
         lead_alpha(w).as_str(),
-        "but" | "and" | "so" | "then" | "also" | "plus" | "yet" | "however" | "ok" | "okay" | "well"
+        "but"
+            | "and"
+            | "so"
+            | "then"
+            | "also"
+            | "plus"
+            | "yet"
+            | "however"
+            | "ok"
+            | "okay"
+            | "well"
     )
 }
 
@@ -539,8 +559,18 @@ fn opens_with_unbound_subject(s: &str) -> bool {
     matches!(
         lead_alpha(first).as_str(),
         // include no-apostrophe contractions ("thats", "theres", "theyre")
-        "it" | "its" | "this" | "that" | "thats" | "these" | "those" | "they" | "theyre"
-            | "them" | "their" | "there" | "theres"
+        "it" | "its"
+            | "this"
+            | "that"
+            | "thats"
+            | "these"
+            | "those"
+            | "they"
+            | "theyre"
+            | "them"
+            | "their"
+            | "there"
+            | "theres"
     )
 }
 
@@ -552,7 +582,9 @@ fn antecedent_resolved(s: &str) -> bool {
     if s.contains('"') || s.contains('`') || s.contains("()") {
         return true;
     }
-    if s.split(|c: char| !c.is_ascii_alphanumeric()).any(is_camelcase) {
+    if s.split(|c: char| !c.is_ascii_alphanumeric())
+        .any(is_camelcase)
+    {
         return true;
     }
     // A named token — but SKIP the first word: sentence-initial capitalization
@@ -656,7 +688,9 @@ fn is_name_like(token: &str) -> bool {
     // marker (`left-pad`, `web3`, `std.fs`) — never a bare lowercase word
     // ("covering", "floating", "the").
     let starts_upper = t.chars().next().map_or(false, |c| c.is_ascii_uppercase());
-    let has_marker = t.chars().any(|c| c.is_ascii_digit() || matches!(c, '-' | '.'));
+    let has_marker = t
+        .chars()
+        .any(|c| c.is_ascii_digit() || matches!(c, '-' | '.'));
     starts_upper || has_marker
 }
 
@@ -730,14 +764,35 @@ fn is_question(s: &str, lower: &str) -> bool {
         return true;
     }
     const LEADS: [&str; 16] = [
-        "how ", "what ", "whats ", "what's ", "why ", "when ", "where ", "which ", "can you",
-        "could you", "should we", "should i", "do we ", "does ", "is it", "are we",
+        "how ",
+        "what ",
+        "whats ",
+        "what's ",
+        "why ",
+        "when ",
+        "where ",
+        "which ",
+        "can you",
+        "could you",
+        "should we",
+        "should i",
+        "do we ",
+        "does ",
+        "is it",
+        "are we",
     ];
     if LEADS.iter().any(|p| lower.starts_with(p)) {
         return true;
     }
     // Embedded question buried mid-text.
-    const EMBED: [&str; 6] = ["could you", "can you", "what other", "how do we", "do i need", "is it ready"];
+    const EMBED: [&str; 6] = [
+        "could you",
+        "can you",
+        "what other",
+        "how do we",
+        "do i need",
+        "is it ready",
+    ];
     EMBED.iter().any(|p| lower.contains(p))
 }
 
@@ -757,18 +812,19 @@ fn looks_like_code_or_log(s: &str) -> bool {
     // Strong code/log signals. A bare file mention ("…into src/worker/email.rs")
     // is NOT one of them — a decision that names the file it touches is normal
     // prose; the punctuation-density check below catches actual pasted code/logs.
-    if lower.starts_with("echo ")
-        || s.contains("####")
-        || s.contains("::")
-        || s.contains("->")
-    {
+    if lower.starts_with("echo ") || s.contains("####") || s.contains("::") || s.contains("->") {
         return true;
     }
     // Dominated by code punctuation rather than prose.
     let total = s.chars().count().max(1);
     let codey = s
         .chars()
-        .filter(|c| matches!(c, '{' | '}' | '[' | ']' | '(' | ')' | '<' | '>' | '=' | '|' | '\\' | '`' | '#' | ';'))
+        .filter(|c| {
+            matches!(
+                c,
+                '{' | '}' | '[' | ']' | '(' | ')' | '<' | '>' | '=' | '|' | '\\' | '`' | '#' | ';'
+            )
+        })
         .count();
     (codey as f64) / (total as f64) > 0.12
 }
@@ -784,7 +840,13 @@ fn has_resolved_choice(s: &str, lower: &str) -> bool {
         }
     }
     // Strong adoption / default verbs.
-    for m in ["switch to ", "adopt ", "migrate to ", "default to ", " by default"] {
+    for m in [
+        "switch to ",
+        "adopt ",
+        "migrate to ",
+        "default to ",
+        " by default",
+    ] {
         if lower.contains(m) {
             return true;
         }
@@ -815,13 +877,24 @@ fn has_resolved_choice(s: &str, lower: &str) -> bool {
 /// behavioural verb — a decision about behaviour, not a request.
 fn has_named_mechanism(s: &str, lower: &str) -> bool {
     const VERBS: [&str; 11] = [
-        "returns ", " maps ", " routes ", "defaults to", " caps ", " bounds ", "dedup",
-        " emits ", " yields ", " resolves ", " falls back",
+        "returns ",
+        " maps ",
+        " routes ",
+        "defaults to",
+        " caps ",
+        " bounds ",
+        "dedup",
+        " emits ",
+        " yields ",
+        " resolves ",
+        " falls back",
     ];
     if !VERBS.iter().any(|v| lower.contains(v)) {
         return false;
     }
-    s.contains("()") || s.split(|c: char| !c.is_ascii_alphanumeric()).any(is_camelcase)
+    s.contains("()")
+        || s.split(|c: char| !c.is_ascii_alphanumeric())
+            .any(is_camelcase)
 }
 
 /// `DeepenAmbiguous`, `RRF`, `ID` — a token with ≥2 uppercase letters that reads
@@ -959,7 +1032,11 @@ mod tests {
         ] {
             let m = gate.evaluate(s);
             let sc = score_decision_candidacy(s, &m, &gate, false, true);
-            assert_eq!(tier_for(sc), None, "narration must drop: {s:?} (score {sc})");
+            assert_eq!(
+                tier_for(sc),
+                None,
+                "narration must drop: {s:?} (score {sc})"
+            );
         }
     }
 
@@ -969,7 +1046,10 @@ mod tests {
         let s = "let me switch to Postgres for the store";
         let m = gate.evaluate(s);
         let sc = score_decision_candidacy(s, &m, &gate, false, true);
-        assert!(tier_for(sc).is_some(), "a real named choice must survive (score {sc})");
+        assert!(
+            tier_for(sc).is_some(),
+            "a real named choice must survive (score {sc})"
+        );
     }
 
     #[test]
@@ -978,13 +1058,20 @@ mod tests {
         let frag = "it has to be fluently and not something I discover";
         let m = gate.evaluate(frag);
         let sc = score_decision_candidacy(frag, &m, &gate, false, true);
-        assert_eq!(tier_for(sc), None, "context-free pronoun fragment must drop (score {sc})");
+        assert_eq!(
+            tier_for(sc),
+            None,
+            "context-free pronoun fragment must drop (score {sc})"
+        );
 
         let resolved = "We rebuilt the Cache. It must stay idempotent.";
         let m2 = gate.evaluate(resolved);
         if !m2.is_empty() {
             let sc2 = score_decision_candidacy(resolved, &m2, &gate, false, true);
-            assert!(tier_for(sc2).is_some(), "pronoun with a resolved antecedent survives (score {sc2})");
+            assert!(
+                tier_for(sc2).is_some(),
+                "pronoun with a resolved antecedent survives (score {sc2})"
+            );
         }
 
         // The antecedent-EXTENDED form must still drop: a leading capitalized
@@ -992,7 +1079,11 @@ mod tests {
         let extended = "But thats not working man? it shouldn't be like that ... it has to be fluently and not something I discover";
         let m3 = gate.evaluate(extended);
         let sc3 = score_decision_candidacy(extended, &m3, &gate, false, true);
-        assert_eq!(tier_for(sc3), None, "capitalized-conjunction fragment must still drop (score {sc3})");
+        assert_eq!(
+            tier_for(sc3),
+            None,
+            "capitalized-conjunction fragment must still drop (score {sc3})"
+        );
     }
 
     #[test]
@@ -1002,7 +1093,11 @@ mod tests {
         let strong = "Let's use Postgres instead of MySQL for the orders service.";
         let m = gate.evaluate(strong);
         let sc = score_decision_candidacy(strong, &m, &gate, false, true);
-        assert_eq!(tier_for(sc), Some(FactStatus::Observed), "strong choice → Observed (score {sc})");
+        assert_eq!(
+            tier_for(sc),
+            Some(FactStatus::Observed),
+            "strong choice → Observed (score {sc})"
+        );
 
         // A bare imperative with NO edit — the old binary gate dropped this; the
         // scored gate must keep it at a LOWER tier (the recall recovery).
@@ -1010,14 +1105,24 @@ mod tests {
         let m2 = gate.evaluate(soft);
         if !m2.is_empty() {
             let sc2 = score_decision_candidacy(soft, &m2, &gate, false, false);
-            assert!(tier_for(sc2).is_some(), "soft imperative should survive at a tier (score {sc2})");
-            assert_ne!(tier_for(sc2), Some(FactStatus::Observed), "but not at the top tier");
+            assert!(
+                tier_for(sc2).is_some(),
+                "soft imperative should survive at a tier (score {sc2})"
+            );
+            assert_ne!(
+                tier_for(sc2),
+                Some(FactStatus::Observed),
+                "but not at the top tier"
+            );
         }
 
         // Skill/goal boilerplate is genuine noise — dropped at any tier.
         let noise = "/goal your goal is to build the initial version";
         let m3 = gate.evaluate(noise);
-        assert_eq!(tier_for(score_decision_candidacy(noise, &m3, &gate, false, false)), None);
+        assert_eq!(
+            tier_for(score_decision_candidacy(noise, &m3, &gate, false, false)),
+            None
+        );
     }
 
     #[test]
@@ -1031,9 +1136,13 @@ mod tests {
     fn options_reject_bare_word_fragments() {
         // A non-decision fragment: the markers grab bare words ("covering",
         // "the wrapper") that are NOT named alternatives — emit nothing.
-        let opts =
-            parse_options("downward keeps it off the title instead of covering it. use the wrapper.");
-        assert!(opts.is_empty(), "bare sentence words must not become options");
+        let opts = parse_options(
+            "downward keeps it off the title instead of covering it. use the wrapper.",
+        );
+        assert!(
+            opts.is_empty(),
+            "bare sentence words must not become options"
+        );
         // A genuine named choice still parses (proper nouns are name-like).
         let real = parse_options("switch to Redis instead of Memcached");
         assert!(real.iter().any(|o| o.text == "Redis" && o.chosen));
@@ -1042,13 +1151,23 @@ mod tests {
 
     #[test]
     fn is_name_like_accepts_names_rejects_fragments() {
-        for ok in ["Postgres", "MySQL", "left-pad", "web3", "std.fs", "Redis", "RaBitQ"] {
+        for ok in [
+            "Postgres", "MySQL", "left-pad", "web3", "std.fs", "Redis", "RaBitQ",
+        ] {
             assert!(is_name_like(ok), "{ok} should read as a named alternative");
         }
         // bare words, and captured code/log fragments
         for bad in [
-            "the", "a", "it", "covering", "floating", "(repo_id", "R_INITIATED]", "memdb/",
-            "_rebuild`)", "[USER",
+            "the",
+            "a",
+            "it",
+            "covering",
+            "floating",
+            "(repo_id",
+            "R_INITIATED]",
+            "memdb/",
+            "_rebuild`)",
+            "[USER",
         ] {
             assert!(!is_name_like(bad), "{bad} must be rejected");
         }
@@ -1067,7 +1186,10 @@ mod tests {
             "we decided to adopt RaBitQ two-tier compression",
             "decide() returns DeepenAmbiguous on a small RRF top-2 score-gap",
         ] {
-            assert!(is_decisive_epitome(keep), "should KEEP a resolved choice: {keep:?}");
+            assert!(
+                is_decisive_epitome(keep),
+                "should KEEP a resolved choice: {keep:?}"
+            );
         }
     }
 
@@ -1087,7 +1209,10 @@ mod tests {
             "Could you investigate that",
             "I need to make a discord announcement",
         ] {
-            assert!(!is_decisive_epitome(drop), "should REJECT a non-decision: {drop:?}");
+            assert!(
+                !is_decisive_epitome(drop),
+                "should REJECT a non-decision: {drop:?}"
+            );
         }
     }
 
@@ -1299,7 +1424,10 @@ mod tests {
         let off =
             best_committal_offset(prose, &markers, &gate).expect("a committal sentence exists");
         let e = epitome_of(prose, off).to_lowercase();
-        assert!(e.contains("healthcheck"), "epitome should follow the request: {e}");
+        assert!(
+            e.contains("healthcheck"),
+            "epitome should follow the request: {e}"
+        );
         assert!(
             !e.contains("enumerates"),
             "epitome must not be the analysis clause: {e}"

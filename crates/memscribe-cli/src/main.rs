@@ -341,10 +341,7 @@ fn cmd_git(repo: &Path, rev: &str, max: usize, out: &Path, no_redact: bool) -> R
         }
     }
 
-    let decisions = nodes
-        .iter()
-        .filter(|n| n.tag() == "decision")
-        .count();
+    let decisions = nodes.iter().filter(|n| n.tag() == "decision").count();
     let bindings = nodes.iter().filter(|n| n.tag() == "binding").count();
     eprintln!(
         "memscribe git: {} commits scanned, {decisions} decisions mined, {bindings} decision→file links",

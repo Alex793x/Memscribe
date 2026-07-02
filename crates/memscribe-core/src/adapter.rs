@@ -207,7 +207,10 @@ mod home_dir_tests {
     fn homedrive_without_homepath_does_not_win() {
         // Partial HOMEDRIVE/HOMEPATH must not produce a bogus path — falls
         // through to the final "." resort instead.
-        assert_eq!(resolve_home_dir(None, None, Some("C:".into()), None), PathBuf::from("."));
+        assert_eq!(
+            resolve_home_dir(None, None, Some("C:".into()), None),
+            PathBuf::from(".")
+        );
     }
 }
 

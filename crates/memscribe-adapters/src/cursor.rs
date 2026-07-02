@@ -136,8 +136,14 @@ impl TranscriptAdapter for CursorAdapter {
                 home.join("Library/Application Support/Cursor/User/globalStorage"),
                 SQLITE_ROOT_DEPTH,
             ),
-            (home.join(".config/Cursor/User/workspaceStorage"), SQLITE_ROOT_DEPTH),
-            (home.join(".config/Cursor/User/globalStorage"), SQLITE_ROOT_DEPTH),
+            (
+                home.join(".config/Cursor/User/workspaceStorage"),
+                SQLITE_ROOT_DEPTH,
+            ),
+            (
+                home.join(".config/Cursor/User/globalStorage"),
+                SQLITE_ROOT_DEPTH,
+            ),
             (
                 home.join("AppData/Roaming/Cursor/User/workspaceStorage"),
                 SQLITE_ROOT_DEPTH,
@@ -1211,9 +1217,7 @@ mod tests {
         // Regression for the missing Windows root: state.vscdb under
         // AppData/Roaming was not in the candidate list at all.
         let tmp = tempfile::tempdir().unwrap();
-        let win_store = tmp
-            .path()
-            .join("AppData/Roaming/Cursor/User/globalStorage");
+        let win_store = tmp.path().join("AppData/Roaming/Cursor/User/globalStorage");
         std::fs::create_dir_all(&win_store).unwrap();
         std::fs::write(win_store.join("state.vscdb"), b"").unwrap();
 
@@ -1222,7 +1226,9 @@ mod tests {
             ..Default::default()
         };
         let handles = CursorAdapter.discover(&cfg);
-        assert!(handles.iter().any(|h| h.path == win_store.join("state.vscdb")));
+        assert!(handles
+            .iter()
+            .any(|h| h.path == win_store.join("state.vscdb")));
     }
 
     /// Parse a whole JSONL string through one shared context (file order),
@@ -1908,7 +1914,10 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(user_turns, vec!["Investigate why the config loader panics on empty files and fix it."]);
+        assert_eq!(
+            user_turns,
+            vec!["Investigate why the config loader panics on empty files and fix it."]
+        );
 
         let assistant_texts: Vec<_> = events
             .iter()
@@ -1921,7 +1930,10 @@ mod tests {
         // both must be preserved as distinct turns, neither silently dropped.
         assert_eq!(
             assistant_texts,
-            vec!["Investigating: I'll read the loader and check for an empty-file guard.", ""]
+            vec![
+                "Investigating: I'll read the loader and check for an empty-file guard.",
+                ""
+            ]
         );
 
         // Every tool_use block across both assistant turns must survive as a
@@ -1933,12 +1945,19 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(tool_calls.len(), 3, "expected Read, Grep, and Edit tool calls, got {tool_calls:?}");
+        assert_eq!(
+            tool_calls.len(),
+            3,
+            "expected Read, Grep, and Edit tool calls, got {tool_calls:?}"
+        );
         assert_eq!(tool_calls[0].0, "Read");
         assert_eq!(tool_calls[0].1["path"], "src/config/loader.rs");
         assert_eq!(tool_calls[1].0, "Grep");
         assert_eq!(tool_calls[2].0, "Edit");
-        assert_eq!(tool_calls[2].1["old_string"], "let raw = fs::read_to_string(path)?;\nparse(&raw)");
+        assert_eq!(
+            tool_calls[2].1["old_string"],
+            "let raw = fs::read_to_string(path)?;\nparse(&raw)"
+        );
 
         // The role-less {"type":"turn_ended",...} marker must not be silently
         // coerced into a bogus dialogue turn — it has no `role`/`kind`, so it

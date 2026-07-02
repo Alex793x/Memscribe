@@ -26,9 +26,7 @@
 
 use crate::binder::{Binder, DefaultBinder};
 use crate::model::{Diff, GitRef};
-use crate::node::{
-    CodeEpisode, DecisionRecord, FactStatus, NodeId, Opt, PreparedNode,
-};
+use crate::node::{CodeEpisode, DecisionRecord, FactStatus, NodeId, Opt, PreparedNode};
 use crate::nodeprep::{DefaultNodePrep, NodePrep};
 use crate::segmenter::{DecisionCandidate, EpisodeRecord, Segmentation};
 use std::path::PathBuf;
@@ -138,8 +136,19 @@ const HOUSEKEEPING_TYPES: &[&str] = &["chore", "docs", "style", "test", "ci", "b
 
 /// Prefixes that disqualify a subject outright (not decisions).
 const SKIP_PREFIXES: &[&str] = &[
-    "merge ", "merge branch", "merge pull", "wip", "bump ", "release ", "version ",
-    "v0.", "v1.", "v2.", "fixup!", "squash!", "amend",
+    "merge ",
+    "merge branch",
+    "merge pull",
+    "wip",
+    "bump ",
+    "release ",
+    "version ",
+    "v0.",
+    "v1.",
+    "v2.",
+    "fixup!",
+    "squash!",
+    "amend",
 ];
 
 /// Classify a commit message as a decision, or `None` for housekeeping/trivial.
@@ -227,7 +236,7 @@ fn parse_conventional(subject: &str) -> (Option<String>, bool, bool, String) {
     };
     let (head, rest) = subject.split_at(colon);
     let rest = rest[1..].trim().to_string(); // drop the ':' and surrounding space
-    // head = "type" | "type(scope)" | "type!" | "type(scope)!"
+                                             // head = "type" | "type(scope)" | "type!" | "type(scope)!"
     let breaking_bang = head.ends_with('!');
     let head_no_bang = head.trim_end_matches('!');
     let has_scope = head_no_bang.contains('(') && head_no_bang.contains(')');
@@ -254,11 +263,38 @@ fn parse_conventional(subject: &str) -> (Option<String>, bool, bool, String) {
 /// meaningful words and reject vague-verb churn ("update", "fixing", "wip").
 fn arch_is_substantive(cleaned_subject: &str, has_scope: bool) -> bool {
     const VAGUE_FIRST: &[&str] = &[
-        "update", "updates", "updated", "updat", "updating", "fixing", "fix",
-        "fixes", "fixed", "tweak", "tweaks", "tweaked", "wip", "misc", "cleanup",
-        "various", "minor", "more", "progress", "stuff", "changes", "change",
-        "improve", "improving", "improvements", "improvement", "tidy", "polish",
-        "rework", "force", "bump", "bumping",
+        "update",
+        "updates",
+        "updated",
+        "updat",
+        "updating",
+        "fixing",
+        "fix",
+        "fixes",
+        "fixed",
+        "tweak",
+        "tweaks",
+        "tweaked",
+        "wip",
+        "misc",
+        "cleanup",
+        "various",
+        "minor",
+        "more",
+        "progress",
+        "stuff",
+        "changes",
+        "change",
+        "improve",
+        "improving",
+        "improvements",
+        "improvement",
+        "tidy",
+        "polish",
+        "rework",
+        "force",
+        "bump",
+        "bumping",
     ];
     let words: Vec<&str> = cleaned_subject.split_whitespace().collect();
     if words.len() < 2 {
@@ -307,8 +343,8 @@ pub fn git_segmentation(commits: &[CommitInput]) -> Segmentation {
         let Some(gd) = classify_commit(&c.subject, &c.body) else {
             continue;
         };
-        let t_use = OffsetDateTime::from_unix_timestamp(c.epoch)
-            .unwrap_or(OffsetDateTime::UNIX_EPOCH);
+        let t_use =
+            OffsetDateTime::from_unix_timestamp(c.epoch).unwrap_or(OffsetDateTime::UNIX_EPOCH);
         let t_gen = t_use + Duration::seconds(1);
         // Leave a wide seq gap per commit so episodes sort just after their
         // decision and never collide with the next commit's seqs.
@@ -437,8 +473,8 @@ mod tests {
 
     #[test]
     fn decision_phrasing_in_plain_commit_is_observed_with_options() {
-        let d = classify_commit("Use Postgres instead of MySQL for the orders service", "")
-            .unwrap();
+        let d =
+            classify_commit("Use Postgres instead of MySQL for the orders service", "").unwrap();
         assert_eq!(d.fact_status, FactStatus::Observed);
         let chosen: Vec<_> = d.options.iter().filter(|o| o.chosen).collect();
         let rejected: Vec<_> = d.options.iter().filter(|o| !o.chosen).collect();
@@ -453,16 +489,29 @@ mod tests {
         let d = classify_commit("perf: switch from Myers to histogram diff", "").unwrap();
         // perf type + "switch ... to" — Observed via phrase, options from/to.
         assert_eq!(d.fact_status, FactStatus::Observed);
-        let chosen: Vec<_> = d.options.iter().filter(|o| o.chosen).map(|o| &o.text).collect();
-        let rejected: Vec<_> = d.options.iter().filter(|o| !o.chosen).map(|o| &o.text).collect();
+        let chosen: Vec<_> = d
+            .options
+            .iter()
+            .filter(|o| o.chosen)
+            .map(|o| &o.text)
+            .collect();
+        let rejected: Vec<_> = d
+            .options
+            .iter()
+            .filter(|o| !o.chosen)
+            .map(|o| &o.text)
+            .collect();
         assert_eq!(rejected, vec!["Myers"]);
         assert_eq!(chosen, vec!["histogram diff"]);
     }
 
     #[test]
     fn revert_is_observed() {
-        let d = classify_commit("Revert \"feat: add caching layer\"", "This reverts commit abc123.")
-            .unwrap();
+        let d = classify_commit(
+            "Revert \"feat: add caching layer\"",
+            "This reverts commit abc123.",
+        )
+        .unwrap();
         assert_eq!(d.fact_status, FactStatus::Observed);
     }
 
@@ -489,7 +538,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(d.fact_status, FactStatus::Observed);
-        assert_eq!(d.epitome, "We decided to adopt RaBitQ for vector compression.");
+        assert_eq!(
+            d.epitome,
+            "We decided to adopt RaBitQ for vector compression."
+        );
     }
 
     /// REGRESSION (found live, v0.8.0 E2E): a real docs commit whose subject
@@ -512,7 +564,10 @@ mod tests {
 
         // The other newly-covered shapes, minimally.
         for (subject, body) in [
-            ("chore: consolidate config", "We decided that one loader owns all env parsing."),
+            (
+                "chore: consolidate config",
+                "We decided that one loader owns all env parsing.",
+            ),
             ("docs: db notes", "Decided against sqlite for the hot path."),
             ("docs: retention policy", "We opted for a 30-day window."),
         ] {

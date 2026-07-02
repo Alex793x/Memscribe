@@ -969,7 +969,9 @@ mod tests {
             ..Default::default()
         };
         let handles = VsCodeAdapter.discover(&cfg);
-        assert!(handles.iter().any(|h| h.path == ws_hash.join("state.vscdb")));
+        assert!(handles
+            .iter()
+            .any(|h| h.path == ws_hash.join("state.vscdb")));
     }
 
     /// Run a slice of JSONL lines through the adapter, threading one context.

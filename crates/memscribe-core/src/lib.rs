@@ -30,10 +30,10 @@ pub mod nodeprep;
 pub mod pipeline;
 pub mod polarity;
 pub mod prose;
-pub mod speechact;
 pub mod redact;
 pub mod segmenter;
 pub mod sink;
+pub mod speechact;
 
 pub use adapter::{
     DiscoverCfg, ParseCtx, RawRecord, SchemaVariant, StoreReader, TranscriptAdapter,
@@ -42,8 +42,11 @@ pub use adapter::{
 pub use binder::{Binder, DefaultBinder};
 pub use error::{ParseError, PipelineError, SinkError};
 pub use gate::{CommitmentGate, GateRule, Tier};
-pub use gitcommit::{classify_commit, git_segmentation, mine_commit_nodes, CommitInput, GitDecision};
+pub use gitcommit::{
+    classify_commit, git_segmentation, mine_commit_nodes, CommitInput, GitDecision,
+};
 pub use intent::IntentFilter;
+pub use languageness::{is_garbage, languageness};
 pub use model::{
     content_id, CaptureEvent, Diff, EventKind, GitRef, Part, ProjectRef, SourceKind,
     SourceLocation, Timestamp, Usage, SCHEMA_VERSION,
@@ -53,11 +56,10 @@ pub use node::{
     DecisionRecord, FactStatus, MarkerCategory, NodeId, Opt, PreparedNode, ProvRecord, Relation,
 };
 pub use nodeprep::{DefaultNodePrep, NodePrep};
-pub use languageness::{is_garbage, languageness};
 pub use pipeline::DefaultPipeline;
 pub use polarity::{analyze_polarity, Polarity};
-pub use speechact::is_decisional_act;
 pub use prose::ProseFilter;
 pub use redact::Redactor;
 pub use segmenter::{DecisionCandidate, DefaultSegmenter, EpisodeRecord, Segmentation, Segmenter};
 pub use sink::{Sink, VecSink};
+pub use speechact::is_decisional_act;

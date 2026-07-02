@@ -876,7 +876,9 @@ mod tests {
                 assert_eq!(text, "Switch the config loader to Postgres.");
                 // message_parts must also read `content`, not just `parts`.
                 assert_eq!(parts.len(), 1);
-                assert!(matches!(&parts[0], Part::Text { text } if text == "Switch the config loader to Postgres."));
+                assert!(
+                    matches!(&parts[0], Part::Text { text } if text == "Switch the config loader to Postgres.")
+                );
             }
             other => panic!("expected UserTurn, got {other:?}"),
         }

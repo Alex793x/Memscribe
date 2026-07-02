@@ -71,7 +71,12 @@ fn discover_transcripts(cfg: &DiscoverCfg) -> Vec<TranscriptHandle> {
         .overrides
         .get("CLAUDE_CONFIG_DIR")
         .cloned()
-        .or_else(|| std::env::var("CLAUDE_CONFIG_DIR").ok().filter(|v| !v.is_empty()).map(PathBuf::from))
+        .or_else(|| {
+            std::env::var("CLAUDE_CONFIG_DIR")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from)
+        })
         .unwrap_or_else(|| cfg.home_dir().join(".claude"));
     let projects = base.join("projects");
 
@@ -630,10 +635,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let projects = tmp.path().join(".claude/projects");
         for dir in [
-            "-Users-u-Desktop-Ws",           // the workspace itself
-            "-Users-u-Desktop-Ws-sub",       // a sub-project inside it
-            "-Users-u-Desktop-WsOther",      // prefix-sharing SIBLING — must NOT match
-            "-Users-u-Work-Client",          // foreign project
+            "-Users-u-Desktop-Ws",      // the workspace itself
+            "-Users-u-Desktop-Ws-sub",  // a sub-project inside it
+            "-Users-u-Desktop-WsOther", // prefix-sharing SIBLING — must NOT match
+            "-Users-u-Work-Client",     // foreign project
         ] {
             std::fs::create_dir_all(projects.join(dir)).unwrap();
             std::fs::write(projects.join(dir).join("s.jsonl"), b"{}\n").unwrap();
@@ -647,7 +652,15 @@ mod tests {
         let handles = discover_transcripts(&scoped);
         let dirs: Vec<String> = handles
             .iter()
-            .map(|h| h.path.parent().unwrap().file_name().unwrap().to_string_lossy().into_owned())
+            .map(|h| {
+                h.path
+                    .parent()
+                    .unwrap()
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
             .collect();
         assert_eq!(dirs, ["-Users-u-Desktop-Ws", "-Users-u-Desktop-Ws-sub"]);
 
@@ -655,7 +668,11 @@ mod tests {
             home: Some(tmp.path().to_path_buf()),
             ..Default::default()
         };
-        assert_eq!(discover_transcripts(&global).len(), 4, "no filter ⇒ global walk");
+        assert_eq!(
+            discover_transcripts(&global).len(),
+            4,
+            "no filter ⇒ global walk"
+        );
     }
 
     // --- TDD: the normalized sequence for a small dialogue --------------------

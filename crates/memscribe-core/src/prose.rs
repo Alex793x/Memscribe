@@ -76,32 +76,32 @@ pub fn default_line_rejects() -> Vec<&'static str> {
         // ---- logs / console output ----
         r"\[(?:info|warn|warning|error|debug|trace)\]",
         r"\blevel=(?:info|warn|warning|error|debug|trace)\b",
-        r"^\s*\d+Z\s",                  // "676Z [memtrace] ..."
-        r"\b\d{1,2}:\d{2}:\d{2}\b.*\[", // timestamped bracketed log line
+        r"^\s*\d+Z\s",                         // "676Z [memtrace] ..."
+        r"\b\d{1,2}:\d{2}:\d{2}\b.*\[",        // timestamped bracketed log line
         r"^\s*(?:warning|error|note|help):\s", // compiler/diagnostic line
-        r"error\[E\d+\]",               // rustc diagnostic code
+        r"error\[E\d+\]",                      // rustc diagnostic code
         // ---- code / diff payloads ----
-        r"^\s*\d+\s*\|",                // line-number / diff gutter "74 | ..."
-        r"^\s*[+\-]\s*\d+\s*\|",        // diff hunk with gutter
+        r"^\s*\d+\s*\|",         // line-number / diff gutter "74 | ..."
+        r"^\s*[+\-]\s*\d+\s*\|", // diff hunk with gutter
         r"^\s*(?:use|import|from|pub|fn|impl|struct|enum|const|let|class|def|public|private|export|function|return|package|namespace)\b.*(?:;|\{|::|=>)",
         r"^\s*(?://|/\*|\*\s|#include|<\?|```)",
-        r"^\s*\|",         // diagnostic/table gutter or a markdown/rustc table row
-        r"\|\s+\^",        // rustc underline "  |    ^^^ this value ..."
-        r"^\s*\[\s*\x22",  // a JSON string-array open: ["...
-        r"\w+\|\w+\|\w+",  // pipe-delimited token table / regex alternation dump
+        r"^\s*\|",        // diagnostic/table gutter or a markdown/rustc table row
+        r"\|\s+\^",       // rustc underline "  |    ^^^ this value ..."
+        r"^\s*\[\s*\x22", // a JSON string-array open: ["...
+        r"\w+\|\w+\|\w+", // pipe-delimited token table / regex alternation dump
         // ---- pasted agent-analysis prose describing code ----
-        r"^\s*[a-z]{1,6}:\d",                 // a file-extension:line ref lead ("rs:1342", "ts:52", "yml:181")
+        r"^\s*[a-z]{1,6}:\d", // a file-extension:line ref lead ("rs:1342", "ts:52", "yml:181")
         r"\b\w+\.(?:rs|ts|tsx|js|jsx|py|go|rb|kt|swift|toml|yml|yaml):\d", // path.ext:line
-        r"^\s*#{1,6}\s+.*#\d{2,}",            // a markdown header naming an issue ("### #483 — …")
-        r"^\s*-?\s*###?\s+#\d",               // an issue-ref heading line
+        r"^\s*#{1,6}\s+.*#\d{2,}", // a markdown header naming an issue ("### #483 — …")
+        r"^\s*-?\s*###?\s+#\d", // an issue-ref heading line
         // ---- pasted agent-output markdown / doc-snippet leftovers ----
-        r"^\s*#{2,6}\s",                      // a markdown section header ("## Summary of fixes")
-        r"^\s*\*\*[^*]{1,48}:\*\*",           // a bold label header ("**Flag an existing user:**")
-        r"^\s*title:\s",                      // frontmatter / commit-title leftover ("title: Quick rebuild")
-        r"^\s*\(use\b",                       // a parenthetical hint ("(use \"git add <file>\" …)")
-        r"[?!]{4,}",                          // punctuation venting ("…FAILING ?????!!!!!!")
-        r"\b(?:SET|WHERE)\s+[\w.]+\s*=",      // a SQL fragment ("… SET unlimited_queries = true …")
-        r"\bINSERT\s+INTO\b",                 // a SQL fragment
+        r"^\s*#{2,6}\s", // a markdown section header ("## Summary of fixes")
+        r"^\s*\*\*[^*]{1,48}:\*\*", // a bold label header ("**Flag an existing user:**")
+        r"^\s*title:\s", // frontmatter / commit-title leftover ("title: Quick rebuild")
+        r"^\s*\(use\b",  // a parenthetical hint ("(use \"git add <file>\" …)")
+        r"[?!]{4,}",     // punctuation venting ("…FAILING ?????!!!!!!")
+        r"\b(?:SET|WHERE)\s+[\w.]+\s*=", // a SQL fragment ("… SET unlimited_queries = true …")
+        r"\bINSERT\s+INTO\b", // a SQL fragment
         // ---- /goal-skill condition restatements (recall-biased false "decisions") ----
         // e.g. "[go and implement all of this…]: The condition … is NOT satisfied."
         // The "[…]: The condition/requirement/goal" template is distinctive of the
@@ -112,7 +112,7 @@ pub fn default_line_rejects() -> Vec<&'static str> {
         // starts with a long (25+ char) bracketed clause is that artifact, never a
         // real decision; short tags like "[urgent]"/"[WIP]"/"[Image #70]" are kept.
         r"^\s*\[[^\]]{25,400}\]",
-        r"^\s*\x22,",                         // a JSON string-array leftover (`","essentially …`)
+        r"^\s*\x22,", // a JSON string-array leftover (`","essentially …`)
     ]
 }
 
@@ -320,7 +320,10 @@ mod tests {
             "[WIP] refactor the parser",
             "[Backend] use Postgres instead of MySQL for the orders service",
         ] {
-            assert!(g.is_human_prose(keep), "must not over-reject genuine prose: {keep:?}");
+            assert!(
+                g.is_human_prose(keep),
+                "must not over-reject genuine prose: {keep:?}"
+            );
         }
     }
 

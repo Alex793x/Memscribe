@@ -95,8 +95,8 @@ impl TranscriptAdapter for HermesAdapter {
         // entirely (no dot-prefix). macOS and Linux share the same
         // `$HOME/.hermes` branch in Hermes's own code (not OS-specific).
         let candidates = [
-            home.join(".hermes").join("state.db"),           // macOS/Linux
-            home.join("AppData/Local/hermes/state.db"),       // Windows
+            home.join(".hermes").join("state.db"),      // macOS/Linux
+            home.join("AppData/Local/hermes/state.db"), // Windows
         ];
         candidates
             .into_iter()
@@ -134,11 +134,16 @@ impl TranscriptAdapter for HermesAdapter {
     }
 
     fn schema_fingerprint(&self, sample: &RawRecord) -> SchemaVariant {
-        match util::parse_json_line(sample).as_ref().and_then(Value::as_object) {
+        match util::parse_json_line(sample)
+            .as_ref()
+            .and_then(Value::as_object)
+        {
             Some(obj) if obj.get("kind").and_then(Value::as_str) == Some("session_start") => {
                 SchemaVariant::certain(SOURCE, "hermes/session-v1")
             }
-            Some(obj) if obj.get("role").is_some() => SchemaVariant::certain(SOURCE, "hermes/chat-v1"),
+            Some(obj) if obj.get("role").is_some() => {
+                SchemaVariant::certain(SOURCE, "hermes/chat-v1")
+            }
             Some(_) => SchemaVariant::unknown(SOURCE),
             None => SchemaVariant::unknown(SOURCE),
         }
@@ -173,9 +178,8 @@ fn read_native(path: &Path) -> rusqlite::Result<Vec<Value>> {
     )?;
 
     let mut records = Vec::new();
-    let mut sess_stmt = conn.prepare(
-        "SELECT id, model, started_at, title FROM sessions ORDER BY id",
-    )?;
+    let mut sess_stmt =
+        conn.prepare("SELECT id, model, started_at, title FROM sessions ORDER BY id")?;
     let sessions: Vec<(String, Option<String>, Option<String>, Option<String>)> = sess_stmt
         .query_map([], |row| {
             Ok((
@@ -201,20 +205,26 @@ fn read_native(path: &Path) -> rusqlite::Result<Vec<Value>> {
             "SELECT id, role, content, tool_call_id, tool_calls, timestamp \
              FROM messages WHERE session_id = ?1 ORDER BY id",
         )?;
-        let rows: Vec<(i64, String, Option<String>, Option<String>, Option<String>, Option<String>)> =
-            msg_stmt
-                .query_map([&session_id], |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                        row.get(5)?,
-                    ))
-                })?
-                .filter_map(std::result::Result::ok)
-                .collect();
+        let rows: Vec<(
+            i64,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )> = msg_stmt
+            .query_map([&session_id], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            })?
+            .filter_map(std::result::Result::ok)
+            .collect();
 
         // First pass: index `tool`-role rows by the call id they answer, so an
         // assistant row's tool calls can carry their results inline — matching
@@ -251,7 +261,9 @@ fn read_native(path: &Path) -> rusqlite::Result<Vec<Value>> {
                     let mut tool_calls = Vec::new();
                     let mut results = Vec::new();
                     for call in calls {
-                        let Some(call_obj) = call.as_object() else { continue };
+                        let Some(call_obj) = call.as_object() else {
+                            continue;
+                        };
                         let id = call_obj
                             .get("id")
                             .and_then(Value::as_str)
@@ -296,7 +308,10 @@ fn read_state_db(path: &Path) -> Result<Vec<RawRecord>, ParseError> {
         .enumerate()
         .map(|(i, v)| {
             let line = serde_json::to_string(&v).unwrap_or_default();
-            RawRecord::from_line(&line, SourceLocation::new(path_str.clone(), 0, i as u64 + 1))
+            RawRecord::from_line(
+                &line,
+                SourceLocation::new(path_str.clone(), 0, i as u64 + 1),
+            )
         })
         .collect())
 }
@@ -318,7 +333,10 @@ fn parse_session_start(
         return Vec::new();
     }
     ctx.project = Some(ProjectRef::from_cwd("."));
-    let ts = util::ts_from(&Value::Object(obj.clone()), &["ts", "timestamp", "started_at"]);
+    let ts = util::ts_from(
+        &Value::Object(obj.clone()),
+        &["ts", "timestamp", "started_at"],
+    );
     vec![util::mk_event(
         SOURCE,
         ctx,
@@ -350,7 +368,11 @@ fn parse_message(
         return Vec::new();
     }
     let ts = util::ts_from(&Value::Object(obj.clone()), &["ts", "timestamp"]);
-    let text = obj.get("text").and_then(Value::as_str).unwrap_or("").to_string();
+    let text = obj
+        .get("text")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
 
     let mut events = Vec::new();
     let kind = match role {
@@ -365,20 +387,41 @@ fn parse_message(
             usage: None::<Usage>,
             parts: vec![Part::Text { text }],
         },
-        _ => return vec![util::unknown_event(SOURCE, ctx, raw, Value::Object(obj.clone()))],
+        _ => {
+            return vec![util::unknown_event(
+                SOURCE,
+                ctx,
+                raw,
+                Value::Object(obj.clone()),
+            )]
+        }
     };
-    events.push(util::mk_event(SOURCE, ctx, raw, event_id.clone(), None, ts, kind));
+    events.push(util::mk_event(
+        SOURCE,
+        ctx,
+        raw,
+        event_id.clone(),
+        None,
+        ts,
+        kind,
+    ));
 
     if let Some(calls) = obj.get("toolCalls").and_then(Value::as_array) {
         let results = obj.get("toolResults").and_then(Value::as_array);
         for (i, call) in calls.iter().enumerate() {
-            let Some(call_obj) = call.as_object() else { continue };
+            let Some(call_obj) = call.as_object() else {
+                continue;
+            };
             let call_id = call_obj
                 .get("id")
                 .and_then(Value::as_str)
                 .map(str::to_string)
                 .unwrap_or_else(|| format!("{event_id}:tool:{i}"));
-            let name = call_obj.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+            let name = call_obj
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             let args = call_obj.get("args").cloned().unwrap_or(Value::Null);
             let call_ev_id = format!("{call_id}:call");
             if ctx.first_seen(&call_ev_id) {
@@ -389,12 +432,17 @@ fn parse_message(
                     call_ev_id,
                     Some(event_id.clone()),
                     ts,
-                    EventKind::ToolCall { call_id: call_id.clone(), name, args },
+                    EventKind::ToolCall {
+                        call_id: call_id.clone(),
+                        name,
+                        args,
+                    },
                 ));
             }
 
             if let Some(result) = results.and_then(|rs| {
-                rs.iter().find(|r| r.get("id").and_then(Value::as_str) == Some(call_id.as_str()))
+                rs.iter()
+                    .find(|r| r.get("id").and_then(Value::as_str) == Some(call_id.as_str()))
             }) {
                 let ok = result.get("ok").and_then(Value::as_bool).unwrap_or(true);
                 let output = result.get("output").cloned().unwrap_or(Value::Null);
@@ -408,7 +456,11 @@ fn parse_message(
                         result_ev_id,
                         Some(event_id.clone()),
                         ts,
-                        EventKind::ToolResult { call_id, ok, output },
+                        EventKind::ToolResult {
+                            call_id,
+                            ok,
+                            output,
+                        },
                     ));
                 }
             }
@@ -445,7 +497,10 @@ mod tests {
         std::fs::write(custom.join("state.db"), b"").unwrap();
 
         std::env::set_var("HERMES_HOME", &custom);
-        let cfg = DiscoverCfg { home: Some(tmp.path().to_path_buf()), ..Default::default() };
+        let cfg = DiscoverCfg {
+            home: Some(tmp.path().to_path_buf()),
+            ..Default::default()
+        };
         let handles = HermesAdapter.discover(&cfg);
         std::env::remove_var("HERMES_HOME");
 
@@ -462,7 +517,10 @@ mod tests {
         std::fs::create_dir_all(win_db.parent().unwrap()).unwrap();
         std::fs::write(&win_db, b"").unwrap();
 
-        let cfg = DiscoverCfg { home: Some(tmp.path().to_path_buf()), ..Default::default() };
+        let cfg = DiscoverCfg {
+            home: Some(tmp.path().to_path_buf()),
+            ..Default::default()
+        };
         let handles = HermesAdapter.discover(&cfg);
         assert_eq!(handles.len(), 1);
         assert_eq!(handles[0].path, win_db);
@@ -475,7 +533,10 @@ mod tests {
         std::fs::create_dir_all(db.parent().unwrap()).unwrap();
         std::fs::write(&db, b"").unwrap();
 
-        let cfg = DiscoverCfg { home: Some(tmp.path().to_path_buf()), ..Default::default() };
+        let cfg = DiscoverCfg {
+            home: Some(tmp.path().to_path_buf()),
+            ..Default::default()
+        };
         let handles = HermesAdapter.discover(&cfg);
         assert_eq!(handles.len(), 1);
         assert_eq!(handles[0].path, db);
@@ -496,10 +557,19 @@ mod tests {
         assert_eq!(ctx.session_id.as_deref(), Some("s1"));
         assert_eq!(
             tags(&events),
-            ["session_start", "user_turn", "assistant_turn", "tool_call", "tool_result"]
+            [
+                "session_start",
+                "user_turn",
+                "assistant_turn",
+                "tool_call",
+                "tool_result"
+            ]
         );
         assert!(matches!(&events[3].kind, EventKind::ToolCall { name, .. } if name == "edit_file"));
-        assert!(matches!(&events[4].kind, EventKind::ToolResult { ok: true, .. }));
+        assert!(matches!(
+            &events[4].kind,
+            EventKind::ToolResult { ok: true, .. }
+        ));
     }
 
     #[test]
@@ -536,11 +606,22 @@ mod tests {
         }
         assert_eq!(
             tags(&events),
-            ["session_start", "user_turn", "assistant_turn", "tool_call", "tool_result"]
+            [
+                "session_start",
+                "user_turn",
+                "assistant_turn",
+                "tool_call",
+                "tool_result"
+            ]
         );
         // The tool-role row must NOT surface as its own separate turn.
-        assert!(!events.iter().any(|e| matches!(&e.kind, EventKind::UserTurn { text, .. } if text == "applied 1 edit")));
-        assert!(matches!(&events[4].kind, EventKind::ToolResult { ok: true, .. }));
+        assert!(!events.iter().any(
+            |e| matches!(&e.kind, EventKind::UserTurn { text, .. } if text == "applied 1 edit")
+        ));
+        assert!(matches!(
+            &events[4].kind,
+            EventKind::ToolResult { ok: true, .. }
+        ));
     }
 
     #[test]

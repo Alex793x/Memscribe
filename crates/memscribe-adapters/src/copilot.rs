@@ -717,7 +717,9 @@ mod tests {
         // version of this test never asserted on it at all). All three real,
         // OS-specific locations must be present now.
         let paths: Vec<_> = handles.iter().map(|h| h.path.clone()).collect();
-        assert!(paths.contains(&home.join("Library/Application Support/Code/User/workspaceStorage")));
+        assert!(
+            paths.contains(&home.join("Library/Application Support/Code/User/workspaceStorage"))
+        );
         assert!(paths.contains(&home.join(".config/Code/User/workspaceStorage")));
         assert!(paths.contains(&home.join("AppData/Roaming/Code/User/workspaceStorage")));
     }

@@ -438,7 +438,12 @@ impl CommitmentGate {
             if m.category == MarkerCategory::Confirmation {
                 continue;
             }
-            match self.rules.iter().find(|r| r.id == m.rule_id).map(|r| r.tier) {
+            match self
+                .rules
+                .iter()
+                .find(|r| r.id == m.rule_id)
+                .map(|r| r.tier)
+            {
                 Some(Tier::Strong) | None => return Some(Tier::Strong),
                 Some(Tier::Soft) => soft = true,
             }
@@ -524,8 +529,14 @@ mod tests {
         }
         // Soft tier: a same-session edit must confirm — no phantom decisions.
         let m = gate.evaluate("Disable the flaky GPU test on Linux.");
-        assert!(!gate.seeds_decision(&m, false), "bare imperative + no edit must not seed");
-        assert!(gate.seeds_decision(&m, true), "bare imperative + edit may seed");
+        assert!(
+            !gate.seeds_decision(&m, false),
+            "bare imperative + no edit must not seed"
+        );
+        assert!(
+            gate.seeds_decision(&m, true),
+            "bare imperative + edit may seed"
+        );
         // Mid-sentence / non-initial use must NOT fire this rule (precision guard).
         let chat = gate.evaluate("I added a quick note about this earlier, nothing major.");
         assert!(
@@ -546,9 +557,16 @@ mod tests {
 
         // A Soft-only marker (bare modal "never") seeds ONLY when an edit confirms.
         let soft = gate.evaluate("we have never seen anything like it");
-        assert!(soft.iter().any(|m| m.rule_id == "imperative.must_always_never"));
-        assert!(!soft.iter().any(|m| m.category == MarkerCategory::DecisionVerb));
-        assert!(!gate.seeds_decision(&soft, false), "soft + no edit must not seed");
+        assert!(soft
+            .iter()
+            .any(|m| m.rule_id == "imperative.must_always_never"));
+        assert!(!soft
+            .iter()
+            .any(|m| m.category == MarkerCategory::DecisionVerb));
+        assert!(
+            !gate.seeds_decision(&soft, false),
+            "soft + no edit must not seed"
+        );
         assert!(gate.seeds_decision(&soft, true), "soft + edit may seed");
 
         // A Confirmation marker never seeds a Decision, even with an edit.
@@ -557,6 +575,9 @@ mod tests {
             .iter()
             .all(|m| m.category == MarkerCategory::Confirmation));
         assert!(!confirm.is_empty());
-        assert!(!gate.seeds_decision(&confirm, true), "confirmation never seeds");
+        assert!(
+            !gate.seeds_decision(&confirm, true),
+            "confirmation never seeds"
+        );
     }
 }
