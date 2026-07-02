@@ -75,6 +75,15 @@ fn discover_transcripts(cfg: &DiscoverCfg) -> Vec<TranscriptHandle> {
         .unwrap_or_else(|| cfg.home_dir().join(".claude"));
     let projects = base.join("projects");
 
+    // Workspace scoping (`project_filter`): Claude Code's per-project dirs are
+    // the cwd slugified (every non-alphanumeric byte → '-'), so a workspace
+    // root maps to its slug plus every `<slug>-…` sub-project dir. Without
+    // this, a capture daemon anchored to ONE workspace ingested every
+    // workspace's sessions on the machine — foreign projects' conversations
+    // polluted the decision store (found live: a client project's sessions
+    // in a different workspace's memory). `None` keeps the old global walk.
+    let slug_prefix = cfg.project_filter.as_deref().map(project_slug);
+
     let mut out = Vec::new();
     for entry in walkdir::WalkDir::new(&projects)
         .into_iter()
@@ -86,6 +95,17 @@ fn discover_transcripts(cfg: &DiscoverCfg) -> Vec<TranscriptHandle> {
         }
         if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
             continue;
+        }
+        if let Some(slug) = &slug_prefix {
+            let in_scope = path
+                .strip_prefix(&projects)
+                .ok()
+                .and_then(|rel| rel.components().next())
+                .and_then(|c| c.as_os_str().to_str())
+                .is_some_and(|dir| dir == slug || dir.starts_with(&format!("{slug}-")));
+            if !in_scope {
+                continue;
+            }
         }
         let session_hint = path
             .file_stem()
@@ -101,6 +121,15 @@ fn discover_transcripts(cfg: &DiscoverCfg) -> Vec<TranscriptHandle> {
     // Deterministic order regardless of filesystem walk order.
     out.sort_by(|a, b| a.path.cmp(&b.path));
     out
+}
+
+/// Claude Code's project-directory slug for a cwd: every non-alphanumeric byte
+/// becomes `-` (so `/Users/x/Desktop/Ws` → `-Users-x-Desktop-Ws`). Pure.
+fn project_slug(cwd: &std::path::Path) -> String {
+    cwd.to_string_lossy()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -589,6 +618,44 @@ mod tests {
 
     fn tags(evs: &[CaptureEvent]) -> Vec<&'static str> {
         evs.iter().map(|e| e.kind.tag()).collect()
+    }
+
+    /// Workspace scoping: with `project_filter` set, only the workspace's own
+    /// project dir (exact slug) and its sub-project dirs (`<slug>-…`) are
+    /// discovered; a sibling workspace whose name merely shares the prefix
+    /// (`…-MemtraceOther`) and a foreign project are excluded. Without the
+    /// filter, everything is discovered (the pre-existing global behavior).
+    #[test]
+    fn project_filter_scopes_discovery_to_the_workspace() {
+        let tmp = tempfile::tempdir().unwrap();
+        let projects = tmp.path().join(".claude/projects");
+        for dir in [
+            "-Users-u-Desktop-Ws",           // the workspace itself
+            "-Users-u-Desktop-Ws-sub",       // a sub-project inside it
+            "-Users-u-Desktop-WsOther",      // prefix-sharing SIBLING — must NOT match
+            "-Users-u-Work-Client",          // foreign project
+        ] {
+            std::fs::create_dir_all(projects.join(dir)).unwrap();
+            std::fs::write(projects.join(dir).join("s.jsonl"), b"{}\n").unwrap();
+        }
+
+        let scoped = DiscoverCfg {
+            home: Some(tmp.path().to_path_buf()),
+            project_filter: Some(PathBuf::from("/Users/u/Desktop/Ws")),
+            ..Default::default()
+        };
+        let handles = discover_transcripts(&scoped);
+        let dirs: Vec<String> = handles
+            .iter()
+            .map(|h| h.path.parent().unwrap().file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(dirs, ["-Users-u-Desktop-Ws", "-Users-u-Desktop-Ws-sub"]);
+
+        let global = DiscoverCfg {
+            home: Some(tmp.path().to_path_buf()),
+            ..Default::default()
+        };
+        assert_eq!(discover_transcripts(&global).len(), 4, "no filter ⇒ global walk");
     }
 
     // --- TDD: the normalized sequence for a small dialogue --------------------
