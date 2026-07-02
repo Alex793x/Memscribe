@@ -100,7 +100,19 @@ const DECISION_PHRASES: &[&str] = &[
     "replaced ",
     "adopt",
     "decided to",
+    // "decide" variants beyond past-tense+infinitive. Found live (v0.8.0 E2E):
+    // a real commit saying "decide to document…" / "We decided the adapter
+    // table must…" produced NO decision because only "decided to" matched —
+    // the imperative and the "decided <object>" shapes fell through.
+    "decide to ",
+    "deciding to ",
+    "we decided",
+    "decided that",
+    "decided against",
     "decision:",
+    "decision to ",
+    "opt for ",
+    "opted for ",
     "we will not",
     "we won't",
     "won't use",
@@ -478,6 +490,37 @@ mod tests {
         .unwrap();
         assert_eq!(d.fact_status, FactStatus::Observed);
         assert_eq!(d.epitome, "We decided to adopt RaBitQ for vector compression.");
+    }
+
+    /// REGRESSION (found live, v0.8.0 E2E): a real docs commit whose subject
+    /// said "decide to document…" and whose body said "We decided the adapter
+    /// table must…" produced NO decision — only past-tense-plus-infinitive
+    /// "decided to" was in the lexicon, so the imperative subject and the
+    /// "decided <object>" body both fell through and the commit was dropped
+    /// as phrase-less housekeeping. Verbatim message from Memscribe 12528bb.
+    #[test]
+    fn decide_variants_beyond_decided_to_are_kept() {
+        let d = classify_commit(
+            "docs(readme): decide to document real per-tool store support honestly",
+            "We decided the adapter table must reflect actual reader capability, not\n\
+             the old export-only story: Cursor/Zed/VS Code now ship native SQLite\n\
+             readers, Hermes Agent and OpenCode are new native-SQLite adapters, and\n\
+             Windsurf is explicitly discovery-only until a protobuf reader exists.",
+        )
+        .unwrap();
+        assert_eq!(d.fact_status, FactStatus::Observed);
+
+        // The other newly-covered shapes, minimally.
+        for (subject, body) in [
+            ("chore: consolidate config", "We decided that one loader owns all env parsing."),
+            ("docs: db notes", "Decided against sqlite for the hot path."),
+            ("docs: retention policy", "We opted for a 30-day window."),
+        ] {
+            assert!(
+                classify_commit(subject, body).is_some(),
+                "{subject:?} + {body:?} must classify as a decision"
+            );
+        }
     }
 
     #[test]
