@@ -673,7 +673,7 @@ fn is_name_like(token: &str) -> bool {
     }
     // Must START with a letter — rules out captured code/log fragments like
     // "(repo_id", "_rebuild`)", "[USER".
-    if !t.chars().next().map_or(false, |c| c.is_ascii_alphabetic()) {
+    if !t.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
         return false;
     }
     // ONLY clean identifier chars — any bracket/paren/quote/backtick/slash/comma
@@ -687,7 +687,7 @@ fn is_name_like(token: &str) -> bool {
     // "Named": Title/CamelCase (`Postgres`, `MySQL`) or an internal identifier
     // marker (`left-pad`, `web3`, `std.fs`) — never a bare lowercase word
     // ("covering", "floating", "the").
-    let starts_upper = t.chars().next().map_or(false, |c| c.is_ascii_uppercase());
+    let starts_upper = t.chars().next().is_some_and(|c| c.is_ascii_uppercase());
     let has_marker = t
         .chars()
         .any(|c| c.is_ascii_digit() || matches!(c, '-' | '.'));

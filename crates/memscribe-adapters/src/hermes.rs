@@ -163,6 +163,18 @@ fn handle_for(path: PathBuf) -> TranscriptHandle {
     }
 }
 
+/// One `sessions` row: `(id, model, started_at, title)`.
+type SessionRow = (String, Option<String>, Option<String>, Option<String>);
+/// One `messages` row: `(id, role, content, tool_call_id, tool_calls, timestamp)`.
+type MessageRow = (
+    i64,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
 /// Open Hermes's `state.db` strictly read-only and emit one synthetic
 /// `session_start` + one record per dialogue message (assistant tool calls
 /// joined with their matching `tool`-role result rows), in deterministic
@@ -180,7 +192,7 @@ fn read_native(path: &Path) -> rusqlite::Result<Vec<Value>> {
     let mut records = Vec::new();
     let mut sess_stmt =
         conn.prepare("SELECT id, model, started_at, title FROM sessions ORDER BY id")?;
-    let sessions: Vec<(String, Option<String>, Option<String>, Option<String>)> = sess_stmt
+    let sessions: Vec<SessionRow> = sess_stmt
         .query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -205,14 +217,7 @@ fn read_native(path: &Path) -> rusqlite::Result<Vec<Value>> {
             "SELECT id, role, content, tool_call_id, tool_calls, timestamp \
              FROM messages WHERE session_id = ?1 ORDER BY id",
         )?;
-        let rows: Vec<(
-            i64,
-            String,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        )> = msg_stmt
+        let rows: Vec<MessageRow> = msg_stmt
             .query_map([&session_id], |row| {
                 Ok((
                     row.get(0)?,
@@ -243,11 +248,7 @@ fn read_native(path: &Path) -> rusqlite::Result<Vec<Value>> {
             if role == "tool" {
                 continue; // folded into its assistant call above
             }
-            let mapped_role = match role.as_str() {
-                "user" => "user",
-                "assistant" => "assistant",
-                other => other, // system / anything else -> Unknown downstream
-            };
+            let mapped_role = role.as_str();
             let mut record = json!({
                 "id": format!("{session_id}:{msg_id}"),
                 "sessionId": session_id,

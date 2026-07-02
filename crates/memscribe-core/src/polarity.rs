@@ -323,8 +323,8 @@ pub fn analyze_polarity(text: &str) -> Polarity {
             // The banned target = the rest of the clause after the lead verb.
             let rest = text
                 .trim_start()
-                .splitn(2, char::is_whitespace)
-                .nth(1)
+                .split_once(char::is_whitespace)
+                .map(|x| x.1)
                 .unwrap_or("");
             return ban(clip_clause(rest));
         }
