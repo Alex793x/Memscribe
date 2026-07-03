@@ -1,0 +1,6 @@
+{
+  "doc_class": "decision_record",
+  "doc_state": "unknown",
+  "governance_effective": false,
+  "parse_quality": "recall_only"
+}

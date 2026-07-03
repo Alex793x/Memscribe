@@ -111,3 +111,13 @@ path = "fuzz_targets/copilot.rs"
 test = false
 doc = false
 bench = false
+
+# The governance-doc oracle (Governance Intake Component A) is a pure string
+# classifier, not a `TranscriptAdapter` — see fuzz_targets/governance_doc.rs
+# for how the fuzz bytes are split into path/content/sidecar-flags.
+[[bin]]
+name = "governance_doc"
+path = "fuzz_targets/governance_doc.rs"
+test = false
+doc = false
+bench = false

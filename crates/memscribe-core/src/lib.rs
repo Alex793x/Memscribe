@@ -22,6 +22,7 @@ pub mod binder;
 pub mod error;
 pub mod gate;
 pub mod gitcommit;
+pub mod governance_doc;
 pub mod intent;
 pub mod languageness;
 pub mod model;
@@ -44,6 +45,9 @@ pub use error::{ParseError, PipelineError, SinkError};
 pub use gate::{CommitmentGate, GateRule, Tier};
 pub use gitcommit::{
     classify_commit, git_segmentation, mine_commit_nodes, CommitInput, GitDecision,
+};
+pub use governance_doc::{
+    classify_governance_doc, DocClass, GovernanceDoc, ParseQuality, SidecarSignals,
 };
 pub use intent::IntentFilter;
 pub use languageness::{is_garbage, languageness};

@@ -90,12 +90,43 @@ impl GoldenCase {
     pub fn read_input(&self) -> std::io::Result<Vec<u8>> {
         std::fs::read(self.input_path())
     }
+
+    /// The input path for a fixture with a caller-supplied extension (e.g.
+    /// `.md` for the governance-doc corpus, in place of the default `.jsonl`).
+    #[must_use]
+    pub fn input_path_ext(&self, ext: &str) -> PathBuf {
+        fixtures_dir()
+            .join(&self.tool)
+            .join(&self.version)
+            .join(format!("{}.{ext}", self.case))
+    }
+
+    /// The expected-output path for a fixture with a caller-supplied suffix
+    /// (e.g. `expected.json`), under `fixtures-expected/` in the same
+    /// `<tool>/<version>/<case>` layout as [`Self::expected_events_path`].
+    #[must_use]
+    pub fn expected_path_suffix(&self, suffix: &str) -> PathBuf {
+        fixtures_expected_dir()
+            .join(&self.tool)
+            .join(&self.version)
+            .join(format!("{}.{suffix}", self.case))
+    }
 }
 
 /// Discover every `*.jsonl` fixture under `fixtures/`, returning golden-case
 /// descriptors. Useful for a data-driven test that iterates all cases.
 #[must_use]
 pub fn discover_cases() -> Vec<GoldenCase> {
+    discover_cases_with_ext("jsonl")
+}
+
+/// Discover every fixture with the given extension under `fixtures/`,
+/// returning golden-case descriptors in the same `<tool>/<version>/<case>`
+/// layout `discover_cases` uses for `.jsonl`. Generalized so non-transcript
+/// corpora (e.g. the governance-doc `.md` golden corpus) can reuse the same
+/// discovery/layout convention without duplicating the directory walk.
+#[must_use]
+pub fn discover_cases_with_ext(ext: &str) -> Vec<GoldenCase> {
     let root = fixtures_dir();
     let mut cases = Vec::new();
     let Ok(tools) = std::fs::read_dir(&root) else {
@@ -119,7 +150,7 @@ pub fn discover_cases() -> Vec<GoldenCase> {
             };
             for file in files.flatten() {
                 let path = file.path();
-                if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
+                if path.extension().and_then(|e| e.to_str()) == Some(ext) {
                     if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                         cases.push(GoldenCase::new(&tool_name, &version_name, stem));
                     }
