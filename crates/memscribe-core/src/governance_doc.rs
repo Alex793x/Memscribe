@@ -175,9 +175,7 @@ fn is_template_or_placeholder(path: &str, content: &str) -> bool {
     }
     // Curly/square/angle placeholder braces around a short token, a strong
     // template signal in a status-bearing line.
-    if content.contains("{status}")
-        || content.contains("<status>")
-        || content.contains("[status]")
+    if content.contains("{status}") || content.contains("<status>") || content.contains("[status]")
     {
         return true;
     }
@@ -198,8 +196,7 @@ fn is_whole_word_match(haystack_lc: &str, word: &str) -> bool {
     let mut start = 0;
     while let Some(rel) = haystack_lc[start..].find(word) {
         let idx = start + rel;
-        let before_ok = idx == 0
-            || !bytes[idx - 1].is_ascii_alphanumeric();
+        let before_ok = idx == 0 || !bytes[idx - 1].is_ascii_alphanumeric();
         let after_idx = idx + wlen;
         let after_ok = after_idx >= bytes.len() || !bytes[after_idx].is_ascii_alphanumeric();
         if before_ok && after_ok {
@@ -256,15 +253,46 @@ fn canonicalize_status(raw: &str) -> Option<&'static str> {
     }
 
     match lc {
-        "proposed" | "draft" | "predraft" | "prediscussion" | "ideation" | "discussion"
-        | "in review" | "open for comments" | "awaiting review" | "scheduled for review"
-        | "active review" | "submitted" | "candidate" | "exploring" | "provisional"
-        | "proposed to target" | "proposed to drop" | "returned for revision" => Some("proposed"),
-        "accepted" | "approved" | "agreed" | "decided" | "active" | "final"
-        | "accepted with revisions" | "accepted with reservations" | "previewing"
-        | "implemented" | "done" | "complete" | "targeted" | "integrated"
-        | "closed / delivered" | "published" | "committed" | "publish" | "implementable"
-        | "ready-for-release" | "released" | "recommended" => Some("accepted"),
+        "proposed"
+        | "draft"
+        | "predraft"
+        | "prediscussion"
+        | "ideation"
+        | "discussion"
+        | "in review"
+        | "open for comments"
+        | "awaiting review"
+        | "scheduled for review"
+        | "active review"
+        | "submitted"
+        | "candidate"
+        | "exploring"
+        | "provisional"
+        | "proposed to target"
+        | "proposed to drop"
+        | "returned for revision" => Some("proposed"),
+        "accepted"
+        | "approved"
+        | "agreed"
+        | "decided"
+        | "active"
+        | "final"
+        | "accepted with revisions"
+        | "accepted with reservations"
+        | "previewing"
+        | "implemented"
+        | "done"
+        | "complete"
+        | "targeted"
+        | "integrated"
+        | "closed / delivered"
+        | "published"
+        | "committed"
+        | "publish"
+        | "implementable"
+        | "ready-for-release"
+        | "released"
+        | "recommended" => Some("accepted"),
         "rejected" | "withdrawn" | "abandoned" | "closed" | "closed / rejected"
         | "closed / withdrawn" => Some("rejected"),
         "deprecated" | "obsolete" | "historic" | "discontinued" => Some("deprecated"),
@@ -578,8 +606,7 @@ fn split_table_row(line: &str) -> Vec<String> {
 fn is_table_separator(line: &str) -> bool {
     let t = line.trim();
     t.starts_with('|')
-        && t.chars()
-            .all(|c| matches!(c, '|' | '-' | ':' | ' ' | '\t'))
+        && t.chars().all(|c| matches!(c, '|' | '-' | ':' | ' ' | '\t'))
         && t.contains('-')
 }
 
@@ -841,7 +868,7 @@ pub fn classify_governance_doc(
             // above) to accepted. A Nygard-fingerprint doc with no status
             // section is degraded to recall-only instead: Nygard's own spec
             // requires a `## Status` section, so its absence is a genuine
-          // parse gap, not "in force by convention" like MADR 3/4.
+            // parse gap, not "in force by convention" like MADR 3/4.
             if madr_fp {
                 Some(GovernanceDoc {
                     doc_class: DocClass::DecisionRecord,
@@ -925,9 +952,7 @@ fn extract_doc_id(path: &str, title: &str) -> Option<String> {
 
 fn doc_id_from_filename_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r"^(\d{4,8})-").expect("doc id filename pattern must compile")
-    })
+    RE.get_or_init(|| Regex::new(r"^(\d{4,8})-").expect("doc id filename pattern must compile"))
 }
 
 fn doc_id_from_title_re() -> &'static Regex {
@@ -1313,8 +1338,8 @@ Chosen option: \"early sketch, revisit later\".
             log4brains_marker: true,
             ..Default::default()
         };
-        let d = classify_governance_doc("docs/adr/20240411-draft-idea.md", content, &sidecars)
-            .unwrap();
+        let d =
+            classify_governance_doc("docs/adr/20240411-draft-idea.md", content, &sidecars).unwrap();
         assert_eq!(d.doc_state, "proposed");
         assert!(!d.governance_effective);
     }
@@ -1596,4 +1621,3 @@ None.
         assert_eq!(a, b);
     }
 }
-
