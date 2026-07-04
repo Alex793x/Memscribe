@@ -44,7 +44,8 @@ pub use binder::{Binder, DefaultBinder};
 pub use error::{ParseError, PipelineError, SinkError};
 pub use gate::{CommitmentGate, GateRule, Tier};
 pub use gitcommit::{
-    classify_commit, git_segmentation, mine_commit_nodes, CommitInput, GitDecision,
+    classify_commit, git_segmentation, is_revert, mine_commit_nodes, scan_adr_refs, CommitInput,
+    GitDecision,
 };
 pub use governance_doc::{
     classify_governance_doc, DocClass, GovernanceDoc, ParseQuality, SidecarSignals,

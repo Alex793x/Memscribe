@@ -171,10 +171,7 @@ pub fn classify_commit(subject: &str, body: &str) -> Option<GitDecision> {
     let whole_lc = format!("{}\n{}", subject_lc, body.to_ascii_lowercase());
 
     let breaking_footer = body.contains("BREAKING CHANGE") || body.contains("BREAKING-CHANGE");
-    let is_revert = commit_type.as_deref() == Some("revert")
-        || subject_lc.starts_with("revert ")
-        || subject_lc.starts_with("revert\"")
-        || body.contains("This reverts commit");
+    let is_revert = is_revert(subject, body);
     let has_phrase = DECISION_PHRASES.iter().any(|p| whole_lc.contains(p));
 
     let arch = commit_type
@@ -225,6 +222,184 @@ pub fn classify_commit(subject: &str, body: &str) -> Option<GitDecision> {
         is_ban: pol.is_ban,
         options: pol.options,
     })
+}
+
+/// Whether `(subject, body)` is a revert commit — the SAME check
+/// [`classify_commit`] uses for its own `is_revert` tiering, extracted to a
+/// standalone `pub` function (Governance Intake, Component J) so a sibling
+/// oracle (the ADR-N cross-linker's [`scan_adr_refs`] caller) can exclude
+/// revert commits from cross-linking WITHOUT re-implementing (and risking
+/// drifting from) revert detection. Three deterministic signals, any one of
+/// which is sufficient: a Conventional-Commits `revert` type, a subject
+/// starting with `Revert ` / `Revert"` (git's own auto-generated revert
+/// subject shape, e.g. `Revert "feat: add caching layer"`), or a body
+/// containing git's auto-generated `This reverts commit` footer.
+///
+/// Pure and total: never panics on any `(subject, body)` input.
+#[must_use]
+pub fn is_revert(subject: &str, body: &str) -> bool {
+    let subject_lc = subject.trim().to_ascii_lowercase();
+    let (commit_type, _, _, _) = parse_conventional(subject);
+    commit_type.as_deref() == Some("revert")
+        || subject_lc.starts_with("revert ")
+        || subject_lc.starts_with("revert\"")
+        || body.contains("This reverts commit")
+}
+
+/// The maximum ADR number this scanner will accept as a plausible reference.
+/// Guards against the pure function returning implausible-but-parseable
+/// numbers (e.g. a build/version number, a PR number in the thousands-of-
+/// thousands range) that a naive `\d+` capture would otherwise happily accept.
+/// Generous enough for any real ADR sequence (ADR-9999 would be an enormous
+/// decision log) while still rejecting obvious non-ADR numerics that happen to
+/// sit next to the token "adr".
+const MAX_PLAUSIBLE_ADR_NUMBER: u64 = 99_999;
+
+/// Scan a commit's `(subject, body)` for word-boundary `ADR-<n>`-shaped
+/// references and return the referenced ADR numbers, normalized, sorted, and
+/// deduplicated.
+///
+/// **Normalization (documented per the task brief, since the design doc is
+/// silent on exact variant handling):** the token is matched
+/// case-insensitively as the literal `adr` followed by OPTIONAL separator
+/// characters (`-`, `_`, or a single space) and then one-or-more ASCII
+/// digits, with a word boundary on both sides (the character immediately
+/// before "adr" and immediately after the digit run — if present — must be
+/// neither alphanumeric nor `_`, so `"ADR-857"`, `"adr857"`, `"ADR 857"`, and
+/// `"ADR_857"` all normalize to the number `857`, while `"leader-857"` or
+/// `"adr857x"` do not match). This covers the three variants the task brief
+/// names as common (`"ADR-857"`, `"adr857"`, `"ADR 857"`) plus the
+/// underscore variant seen in some slug-style references, without inventing
+/// a competing vocabulary beyond what's asked for.
+///
+/// **False-positive rejection (heuristic, not perfect — the task brief
+/// explicitly allows this):**
+/// - A match is dropped if it falls inside what looks like a URL: scanning
+///   backward from the match start for the nearest whitespace, if that
+///   substring contains `://` or starts with `www.`, the match is inside a
+///   URL-shaped token and is rejected. This catches the common case of an ADR
+///   reference embedded in a link (`https://github.com/x/adr-857`) without
+///   needing a real URL parser.
+/// - A match is dropped if it falls inside a backtick-delimited code span
+///   (an odd number of backticks precede it on the same line — i.e. an
+///   unclosed backtick run before the match) — catches `` `ADR-857` `` used
+///   as a literal/code token rather than a prose reference. Deliberately
+///   line-scoped (Markdown code spans don't cross lines in a commit message)
+///   and deliberately simple (a real Markdown parser is out of scope for a
+///   commit-message scanner).
+/// - An implausibly large numeric run (see [`MAX_PLAUSIBLE_ADR_NUMBER`]) is
+///   dropped rather than wrapping/overflowing `u64::parse`.
+///
+/// Pure, total, and **panics on nothing** — including adversarial/fuzzed
+/// input (empty strings, huge digit runs, unmatched backticks, non-ASCII
+/// bytes mixed with ASCII digits, etc.); the fuzz-totality test pins this.
+///
+/// Does NOT itself exclude revert commits — see [`is_revert`], which the
+/// caller (the git-mine cross-linker) composes with this function so a
+/// revert's ADR mentions never mint a cross-link.
+#[must_use]
+pub fn scan_adr_refs(subject: &str, body: &str) -> Vec<u64> {
+    let mut refs: Vec<u64> = Vec::new();
+    for line in std::iter::once(subject).chain(body.lines()) {
+        scan_line_for_adr_refs(line, &mut refs);
+    }
+    refs.sort_unstable();
+    refs.dedup();
+    refs
+}
+
+/// Scan one line for `adr`-token matches, appending every accepted match's
+/// normalized number to `out`. Line-scoped so the backtick-code-span check
+/// (which counts backticks from the start of the line) stays correct.
+fn scan_line_for_adr_refs(line: &str, out: &mut Vec<u64>) {
+    let bytes = line.as_bytes();
+    let lower = line.to_ascii_lowercase();
+    let lower_bytes = lower.as_bytes();
+    let n = bytes.len();
+    let mut i = 0usize;
+    while i + 3 <= n {
+        // Look for the literal "adr" (case-insensitive via the pre-lowered
+        // buffer) at position i.
+        if &lower_bytes[i..i + 3] != b"adr" {
+            i += 1;
+            continue;
+        }
+        // Word boundary BEFORE the match: the preceding byte (if any) must
+        // not be alphanumeric/underscore.
+        let boundary_before =
+            i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_');
+        if !boundary_before {
+            i += 1;
+            continue;
+        }
+
+        // Optional single separator: '-', '_', or one space.
+        let mut j = i + 3;
+        if j < n && matches!(bytes[j], b'-' | b'_' | b' ') {
+            j += 1;
+        }
+
+        // One-or-more ASCII digits.
+        let digits_start = j;
+        while j < n && bytes[j].is_ascii_digit() {
+            j += 1;
+        }
+        if j == digits_start {
+            // No digits followed ⇒ not a match ("adrenaline", "adr-review").
+            i += 1;
+            continue;
+        }
+
+        // Word boundary AFTER the digit run: the following byte (if any)
+        // must not be alphanumeric/underscore (rejects "adr857x", "ADR-12a").
+        let boundary_after = j == n || !(bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_');
+        if !boundary_after {
+            i = j;
+            continue;
+        }
+
+        // Parse the digit run. A run so long it cannot fit u64 (or exceeds
+        // the plausibility ceiling) is rejected rather than risking a parse
+        // panic/overflow — `str::parse` itself never panics (it returns
+        // `Result`), but we still gate on plausibility for precision.
+        let digit_str = &line[digits_start..j];
+        if let Ok(num) = digit_str.parse::<u64>() {
+            if num > 0 && num <= MAX_PLAUSIBLE_ADR_NUMBER && !looks_like_lookalike(line, i, j) {
+                out.push(num);
+            }
+        }
+
+        i = j;
+    }
+}
+
+/// False-positive heuristic: does the match at byte range `[start, end)` in
+/// `line` look like it's inside a URL or a backtick code span?
+fn looks_like_lookalike(line: &str, start: usize, end: usize) -> bool {
+    // URL check: find the nearest whitespace at or before `start`, and
+    // inspect the token between it and `end` (extended forward to the next
+    // whitespace/EOL) for URL shape.
+    let token_start = line[..start]
+        .rfind(char::is_whitespace)
+        .map(|p| p + 1)
+        .unwrap_or(0);
+    let token_end = line[end..]
+        .find(char::is_whitespace)
+        .map(|p| end + p)
+        .unwrap_or(line.len());
+    let token = &line[token_start..token_end];
+    if token.contains("://") || token.starts_with("www.") {
+        return true;
+    }
+
+    // Code-span check: an odd number of backticks before `start` on this
+    // line means we're inside an unclosed backtick run (a code span).
+    let backticks_before = line[..start].matches('`').count();
+    if backticks_before % 2 == 1 {
+        return true;
+    }
+
+    false
 }
 
 /// Parse a Conventional-Commits header `type(scope)!: subject`. Returns
@@ -441,6 +616,7 @@ pub fn mine_commit_nodes(commits: &[CommitInput]) -> Vec<PreparedNode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     fn ci(sha: &str, subject: &str, body: &str, files: &[&str], epoch: i64) -> CommitInput {
         CommitInput {
@@ -736,5 +912,190 @@ mod tests {
             .filter(|n| matches!(n, PreparedNode::Episode(_)))
             .count();
         assert_eq!(episodes, MAX_FILES_PER_COMMIT);
+    }
+
+    // -----------------------------------------------------------------------
+    // `is_revert` — standalone extraction (Governance Intake, Component J).
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn is_revert_detects_conventional_revert_type() {
+        assert!(is_revert("revert: add caching layer", ""));
+    }
+
+    #[test]
+    fn is_revert_detects_gits_auto_generated_shape() {
+        assert!(is_revert(
+            "Revert \"feat: add caching layer\"",
+            "This reverts commit abc123.",
+        ));
+        assert!(is_revert("Revert \"fix: per ADR-12\"", ""));
+    }
+
+    #[test]
+    fn is_revert_detects_body_footer_alone() {
+        assert!(is_revert(
+            "chore: rollback",
+            "This reverts commit deadbeef1234."
+        ));
+    }
+
+    #[test]
+    fn is_revert_false_for_ordinary_commits() {
+        assert!(!is_revert("feat: add caching layer", ""));
+        assert!(!is_revert("docs: mention revert policy", "no footer here"));
+    }
+
+    #[test]
+    fn is_revert_agrees_with_classify_commits_internal_tiering() {
+        // classify_commit tiers a revert as Observed purely because of
+        // is_revert; confirm the standalone function agrees with that
+        // existing behavior rather than silently drifting from it.
+        let subject = "Revert \"feat: add caching layer\"";
+        let body = "This reverts commit abc123.";
+        assert!(is_revert(subject, body));
+        let d = classify_commit(subject, body).unwrap();
+        assert_eq!(d.fact_status, FactStatus::Observed);
+    }
+
+    // -----------------------------------------------------------------------
+    // `scan_adr_refs` — the ADR-N cross-linker scanner (Governance Intake,
+    // Component J). Golden corpus: must-match + must-NOT-match cases.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn scan_adr_refs_matches_common_variants() {
+        assert_eq!(scan_adr_refs("per ADR-857", ""), vec![857]);
+        assert_eq!(scan_adr_refs("implements ADR-12", ""), vec![12]);
+        assert_eq!(scan_adr_refs("ADR-3: rework the store init", ""), vec![3]);
+        assert_eq!(scan_adr_refs("follows adr857", ""), vec![857]);
+        assert_eq!(scan_adr_refs("see ADR 857 for context", ""), vec![857]);
+        assert_eq!(scan_adr_refs("ref ADR_42 in the body", ""), vec![42]);
+    }
+
+    #[test]
+    fn scan_adr_refs_scans_both_subject_and_body() {
+        let refs = scan_adr_refs(
+            "feat: adopt the new cache",
+            "This follows ADR-9 and also touches ADR-10.",
+        );
+        assert_eq!(refs, vec![9, 10]);
+    }
+
+    #[test]
+    fn scan_adr_refs_dedupes_and_sorts() {
+        let refs = scan_adr_refs(
+            "ADR-5: repeat",
+            "mentions ADR-5 again, and also ADR-1 earlier in the log.",
+        );
+        assert_eq!(refs, vec![1, 5]);
+    }
+
+    #[test]
+    fn scan_adr_refs_rejects_url_embedded_references() {
+        assert_eq!(
+            scan_adr_refs("see https://github.com/acme/repo/adr-857", ""),
+            Vec::<u64>::new()
+        );
+        assert_eq!(
+            scan_adr_refs("docs at www.example.com/adr-12/index", ""),
+            Vec::<u64>::new()
+        );
+    }
+
+    #[test]
+    fn scan_adr_refs_rejects_code_span_references() {
+        assert_eq!(
+            scan_adr_refs("rename the `ADR-857` constant", ""),
+            Vec::<u64>::new()
+        );
+    }
+
+    #[test]
+    fn scan_adr_refs_rejects_non_word_boundary_abuse() {
+        // "adr" glued to other alnum text on either side must not match.
+        assert_eq!(scan_adr_refs("leader-857 promoted", ""), Vec::<u64>::new());
+        assert_eq!(scan_adr_refs("adr857x is unrelated", ""), Vec::<u64>::new());
+        assert_eq!(scan_adr_refs("myadr-12 renamed", ""), Vec::<u64>::new());
+    }
+
+    #[test]
+    fn scan_adr_refs_rejects_bare_adr_with_no_digits() {
+        assert_eq!(scan_adr_refs("adrenaline rush", ""), Vec::<u64>::new());
+        assert_eq!(scan_adr_refs("adr-review needed", ""), Vec::<u64>::new());
+    }
+
+    #[test]
+    fn scan_adr_refs_rejects_implausibly_large_numbers() {
+        assert_eq!(
+            scan_adr_refs("ADR-999999999 is not a real adr", ""),
+            Vec::<u64>::new()
+        );
+    }
+
+    /// Revert-exclusion is a caller-side composition, not the scanner's own
+    /// job (see the scanner's doc comment) — but confirm the ADR mention
+    /// itself is still found so the composed caller can positively identify
+    /// "this revert mentions ADR-12" and skip it deliberately, rather than
+    /// the scanner silently hiding it.
+    #[test]
+    fn scan_adr_refs_still_finds_refs_in_revert_subjects_the_caller_must_filter() {
+        let subject = "Revert \"fix: per ADR-12\"";
+        assert!(is_revert(subject, ""));
+        assert_eq!(scan_adr_refs(subject, ""), vec![12]);
+    }
+
+    /// Fuzz-totality twin: the scanner never panics on arbitrary strings and
+    /// always returns a (possibly empty) result. Covers empty strings, huge
+    /// digit runs, unmatched backticks, non-ASCII bytes adjacent to "adr"-like
+    /// tokens, and pathological repeats.
+    #[test]
+    fn scan_adr_refs_never_panics_on_hostile_input() {
+        let hostile = [
+            "",
+            "adr",
+            "adr-",
+            "adr--------",
+            "ADR-99999999999999999999999999999999",
+            "`````adr-12`````",
+            "адр-857 (non-ascii cyrillic lookalike)",
+            "adr-\u{0}12",
+            &"adr-1".repeat(10_000),
+            "ADR-0",
+            "-ADR-857-",
+            "ADR-857\nADR-12\r\nADR_3",
+        ];
+        for s in hostile {
+            let _ = scan_adr_refs(s, s); // must not panic
+        }
+    }
+
+    proptest! {
+        /// Determinism: scanning the same (subject, body) twice yields the
+        /// byte-identical (structurally identical) result.
+        #[test]
+        fn scan_adr_refs_is_deterministic_prop(
+            subject in ".*", body in ".*"
+        ) {
+            let a = scan_adr_refs(&subject, &body);
+            let b = scan_adr_refs(&subject, &body);
+            prop_assert_eq!(a, b);
+        }
+
+        /// Fuzz-totality as a property: scan_adr_refs never panics over a wide
+        /// arbitrary-string sample (proptest's default regex includes control
+        /// characters and non-ASCII).
+        #[test]
+        fn scan_adr_refs_never_panics_prop(subject in ".*", body in ".*") {
+            let _ = scan_adr_refs(&subject, &body);
+        }
+
+        /// Every returned number is within the plausibility ceiling and non-zero.
+        #[test]
+        fn scan_adr_refs_results_are_always_plausible(subject in ".*", body in ".*") {
+            for n in scan_adr_refs(&subject, &body) {
+                prop_assert!(n > 0 && n <= MAX_PLAUSIBLE_ADR_NUMBER);
+            }
+        }
     }
 }
