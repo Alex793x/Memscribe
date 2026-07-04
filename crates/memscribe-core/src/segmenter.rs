@@ -199,6 +199,7 @@ impl Segmenter for DefaultSegmenter {
                         origin: DecisionOrigin::Conversation,
                         repo_identity: None,
                         adr_key: None,
+                        governance: None,
                     };
                     seg.decisions.push(DecisionCandidate {
                         node_id: NodeId::new(format!("decision:{}:{}", ev.session_id, ev.seq)),
@@ -259,6 +260,7 @@ impl Segmenter for DefaultSegmenter {
                         origin: DecisionOrigin::Conversation,
                         repo_identity: None,
                         adr_key: None,
+                        governance: None,
                     };
                     seg.decisions.push(DecisionCandidate {
                         node_id: NodeId::new(format!("decision:{}:{}", ev.session_id, ev.seq)),

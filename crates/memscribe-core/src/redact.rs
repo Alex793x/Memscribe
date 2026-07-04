@@ -164,4 +164,71 @@ mod tests {
         let s = "token: ghp_abcdefghijklmnopqrstuvwxyz0123456789";
         assert_eq!(r.redact_text(s), r.redact_text(s));
     }
+
+    // -----------------------------------------------------------------------
+    // Component D — `redact_node` on a governance-doc-shaped `DecisionRecord`.
+    // -----------------------------------------------------------------------
+
+    /// `redact_node` still redacts a governance-sourced `Decision`'s free-text
+    /// `epitome` (a secret pasted into an ADR title/H1 is just as real a leak
+    /// as one in a conversation-mined decision) while leaving the closed-
+    /// vocabulary `GovernanceFacts` sidecar (`doc_class`/`doc_state`/
+    /// `governance_effective`/`parse_quality`/scope selectors) and the
+    /// identity fields (`repo_identity`/`adr_key`) untouched — none of those
+    /// are free text a secret pattern could hide in, and redacting a status
+    /// string like `"accepted"` would corrupt the V1-contract governance gate
+    /// rather than protect anything.
+    #[test]
+    fn redact_node_redacts_epitome_but_not_governance_facts() {
+        use crate::node::{DecisionOrigin, GovernanceFacts, ScopeNode};
+        use time::OffsetDateTime;
+
+        let mut node = PreparedNode::Decision(crate::node::DecisionRecord {
+            epitome: "export OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwx1234".to_string(),
+            considered_options: Vec::new(),
+            is_ban: false,
+            superseded_by: None,
+            confirmation: None,
+            source_span: 0..1,
+            fact_status: crate::node::FactStatus::Observed,
+            timestamp: OffsetDateTime::UNIX_EPOCH,
+            decided_by: None,
+            origin: DecisionOrigin::Governance,
+            repo_identity: Some("acme/widgets".to_string()),
+            adr_key: Some("857".to_string()),
+            governance: Some(GovernanceFacts {
+                doc_class: "decision_record".to_string(),
+                doc_state: "accepted".to_string(),
+                governance_effective: true,
+                parse_quality: "full_parse".to_string(),
+                scope: Some(ScopeNode {
+                    selectors: vec!["path:src/capability/**".to_string()],
+                }),
+            }),
+        });
+
+        let r = Redactor::default();
+        r.redact_node(&mut node);
+
+        let PreparedNode::Decision(d) = node else {
+            unreachable!()
+        };
+        assert!(
+            !d.epitome.contains("sk-abcdefghijklmnopqrst"),
+            "the secret in the epitome must be redacted"
+        );
+        assert!(d.epitome.contains("[REDACTED:"));
+        // Everything else is untouched, byte-for-byte.
+        assert_eq!(d.repo_identity.as_deref(), Some("acme/widgets"));
+        assert_eq!(d.adr_key.as_deref(), Some("857"));
+        let g = d.governance.expect("governance sidecar survives redaction");
+        assert_eq!(g.doc_class, "decision_record");
+        assert_eq!(g.doc_state, "accepted");
+        assert!(g.governance_effective);
+        assert_eq!(g.parse_quality, "full_parse");
+        assert_eq!(
+            g.scope.expect("scope survives redaction").selectors,
+            vec!["path:src/capability/**".to_string()]
+        );
+    }
 }

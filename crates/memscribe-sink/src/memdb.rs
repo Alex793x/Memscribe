@@ -381,6 +381,7 @@ mod tests {
             origin: Default::default(),
             repo_identity: None,
             adr_key: None,
+            governance: None,
         })
     }
 
@@ -604,6 +605,7 @@ mod tests {
             origin: Default::default(),
             repo_identity: None,
             adr_key: None,
+            governance: None,
         });
         let mut sink = MemDbSink::new(INGEST);
         sink.emit(&ban).unwrap();

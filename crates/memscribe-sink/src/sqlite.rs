@@ -175,6 +175,7 @@ mod tests {
             origin: Default::default(),
             repo_identity: None,
             adr_key: None,
+            governance: None,
         })
     }
 

@@ -57,8 +57,8 @@ pub use model::{
 };
 pub use node::{
     BindingEdge, CheckRef, CodeEpisode, CommitmentMarker, ConversationSpan, CorrelationTuple,
-    DecisionOrigin, DecisionRecord, FactStatus, MarkerCategory, NodeId, Opt, PreparedNode,
-    ProvRecord, Relation,
+    DecisionOrigin, DecisionRecord, FactStatus, GovernanceFacts, MarkerCategory, NodeId, Opt,
+    PreparedNode, ProvRecord, Relation, ScopeNode,
 };
 pub use nodeprep::{DefaultNodePrep, NodePrep};
 pub use pipeline::DefaultPipeline;

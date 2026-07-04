@@ -219,6 +219,85 @@ pub struct DecisionRecord {
     /// `origin == Governance`. Additive + `serde(default)`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adr_key: Option<String>,
+    /// The classified governance-doc facts (Component A's `classify_governance_doc`
+    /// output, minus its `title`/`doc_id` which already have a home on this
+    /// record via `epitome`/`adr_key`), when this record was ingested via the
+    /// Governance Intake doc path (`origin == Governance`). `None` for every
+    /// conversation/git-mined record (no caller sets it).
+    ///
+    /// Design note (Component D): this is a **typed sidecar field on
+    /// `DecisionRecord`**, not a separate `PreparedNode` variant — a classified
+    /// ADR/MADR/log4brains/DECISIONS.md fact is still exactly a `Decision`
+    /// (IBIS/MADR-shaped: an epitome, a status, a lifecycle), so it round-trips
+    /// through the existing `PreparedNode::Decision` arm rather than forcing
+    /// every downstream consumer (ingest, redaction, NDJSON tail, corpusgen) to
+    /// learn a fifth `PreparedNode` shape for what is semantically the same
+    /// node kind. Additive + `serde(default)`, so every pre-Component-D
+    /// producer/consumer (conversation/git-mined records, and any capture pass
+    /// — e.g. a sibling worktree's `governance_doc_to_prepared_node` — that
+    /// already emits a `PreparedNode::Decision` without this field) keeps
+    /// (de)serializing unchanged; a reader that sets this field via its own
+    /// "governance" JSON sidecar convention still deserializes correctly as
+    /// long as the field name matches (`governance`), since serde ignores
+    /// unknown-shaped `None` the same way either way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub governance: Option<GovernanceFacts>,
+}
+
+/// The classified governance-doc facts a `DecisionRecord` carries when
+/// `origin == DecisionOrigin::Governance` (Component D). Mirrors
+/// `memscribe_core::governance_doc::GovernanceDoc` (Component A) minus
+/// `title`/`doc_id`, which already have a home on `DecisionRecord` itself
+/// (`epitome`/`adr_key`) — this type exists so `memcortex-ingest` (which
+/// cannot depend on `governance_doc`'s classifier internals, only its output
+/// shape) has a plain, serializable carrier for the two-field V1-contract
+/// split (`doc_state` vs `governance_effective`, design doc item 2) plus the
+/// doc-class and parse-quality labels needed for honest recall/display.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GovernanceFacts {
+    /// The doc-class slug (`"decision_record"` / `"proposal_in_flight"` /
+    /// `"standing_rule"` / `"procedure"`) — a plain string, not
+    /// `governance_doc::DocClass` itself, so this type has no dependency on
+    /// that module (kept here, alongside `PreparedNode`, so a consumer crate
+    /// that only needs the *shape* of governance facts, not the classifier,
+    /// avoids pulling in `classify_governance_doc`'s parsing internals).
+    pub doc_class: String,
+    /// The canonicalized-but-honest verbatim status (`GovernanceDoc::doc_state`).
+    /// Never invented; `"unknown"` at recall-only parse quality.
+    pub doc_state: String,
+    /// Conservatively derived (`GovernanceDoc::governance_effective`): true only
+    /// for `accepted` (verbatim or MADR-implicit). Gates edge-minting eligibility
+    /// downstream (Component E) — this field only ever *carries* the value
+    /// honestly; it never decides anything on its own.
+    pub governance_effective: bool,
+    /// The parse-quality slug (`"full_parse"` / `"recall_only"`) —
+    /// `GovernanceDoc::parse_quality` as a plain string, same rationale as
+    /// `doc_class`.
+    pub parse_quality: String,
+    /// A Tier-0 author-declared scope (`governs: [...]` front matter), when
+    /// present. `None` when the doc carries no scope metadata — Tier 1/2
+    /// scope derivation (prose extraction, mined suggestions) is Component F's
+    /// concern and is never populated here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<ScopeNode>,
+}
+
+/// A minimal scope-node shape (design doc "Anchoring" section, Tier 0):
+/// the closed-vocabulary selector strings straight from a `governs:`
+/// front-matter line (e.g. `["lang:ts", "path:apps/web/**"]`), carried
+/// verbatim. **Not evaluated here** — resolving a selector against a
+/// repo/path/lang/service/symbol at query time is Component F's scope
+/// predicate evaluator; this type only makes sure the raw selectors survive
+/// the NDJSON round-trip so a scope node CAN be represented and stored today.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ScopeNode {
+    /// The raw selector strings, in file order, verbatim from front matter
+    /// (e.g. `"repo:memtrace-ui"`, `"path:apps/web/**"`, `"lang:typescript"`,
+    /// `"ext:.sql"`, `"service:billing-api"`, `"symbol:CapabilityRegistry"`).
+    /// Unparsed/unvalidated here — the closed-vocabulary selector grammar
+    /// (design doc's "Scope selector vocabulary" table) is Component F's
+    /// concern; this is a lossless carrier only.
+    pub selectors: Vec<String>,
 }
 
 /// Backward-compat default for `DecisionRecord.timestamp` when reading NDJSON

@@ -393,6 +393,7 @@ pub fn git_segmentation(commits: &[CommitInput]) -> Segmentation {
                     origin: crate::node::DecisionOrigin::GitCommit,
                     repo_identity: None,
                     adr_key: None,
+                    governance: None,
                 },
                 node_id: NodeId::new(format!("decision:{session}:{seq}")),
                 turn_seq: seq,
