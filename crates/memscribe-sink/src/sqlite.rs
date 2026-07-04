@@ -172,6 +172,9 @@ mod tests {
             fact_status: FactStatus::Observed,
             timestamp: time::OffsetDateTime::UNIX_EPOCH,
             decided_by: None,
+            origin: Default::default(),
+            repo_identity: None,
+            adr_key: None,
         })
     }
 

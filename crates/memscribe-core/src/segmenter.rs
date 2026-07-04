@@ -9,8 +9,8 @@
 use crate::gate::{CommitmentGate, Tier};
 use crate::model::{content_id, CaptureEvent, EventKind};
 use crate::node::{
-    CodeEpisode, CommitmentMarker, ConversationSpan, DecisionRecord, FactStatus, MarkerCategory,
-    NodeId, Opt,
+    CodeEpisode, CommitmentMarker, ConversationSpan, DecisionOrigin, DecisionRecord, FactStatus,
+    MarkerCategory, NodeId, Opt,
 };
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
@@ -196,6 +196,9 @@ impl Segmenter for DefaultSegmenter {
                         // layer falls back to the store owner. Git-mined decisions
                         // set this to the commit author (real per-engineer Teams).
                         decided_by: None,
+                        origin: DecisionOrigin::Conversation,
+                        repo_identity: None,
+                        adr_key: None,
                     };
                     seg.decisions.push(DecisionCandidate {
                         node_id: NodeId::new(format!("decision:{}:{}", ev.session_id, ev.seq)),
@@ -253,6 +256,9 @@ impl Segmenter for DefaultSegmenter {
                         timestamp: ev.timestamp,
                         // The model that produced the turn — real per-author attribution.
                         decided_by: Some(model.clone().unwrap_or_else(|| "assistant".to_string())),
+                        origin: DecisionOrigin::Conversation,
+                        repo_identity: None,
+                        adr_key: None,
                     };
                     seg.decisions.push(DecisionCandidate {
                         node_id: NodeId::new(format!("decision:{}:{}", ev.session_id, ev.seq)),

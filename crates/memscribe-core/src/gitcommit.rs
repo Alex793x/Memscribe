@@ -387,6 +387,12 @@ pub fn git_segmentation(commits: &[CommitInput]) -> Segmentation {
                         let a = c.author.trim();
                         (!a.is_empty()).then(|| a.to_string())
                     },
+                    // Git-mined decisions are distinguished from conversation- and
+                    // governance-doc-sourced ones (Component G identity fix); this
+                    // does not change `decision_id()` (source_span+epitome only).
+                    origin: crate::node::DecisionOrigin::GitCommit,
+                    repo_identity: None,
+                    adr_key: None,
                 },
                 node_id: NodeId::new(format!("decision:{session}:{seq}")),
                 turn_seq: seq,

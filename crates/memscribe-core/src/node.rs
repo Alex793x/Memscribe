@@ -105,6 +105,39 @@ pub struct ConversationSpan {
     pub provenance: Vec<SourceLocation>,
 }
 
+/// Which pipeline produced a [`DecisionRecord`] — conversation-mined,
+/// git-mined, or governance-doc-ingested (ADR/MADR/log4brains/DECISIONS.md,
+/// Component A's `classify_governance_doc`). Distinct from [`crate::model::SourceKind`],
+/// which names the *agent/tool* a conversation came from (Claude Code, Codex,
+/// …) — this is the *decision-provenance* axis MemCortex's identity scheme
+/// (Component G) keys on to route ADR-sourced records through a disjoint id
+/// space from conversation/git-mined ones. Defaults to `Conversation` (the
+/// original, only origin that existed before this field), so every prior
+/// `DecisionRecord` construction site (git-mine included) keeps compiling and
+/// keeps its historical meaning without an explicit update.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DecisionOrigin {
+    /// Deterministically parsed from a gated conversation turn.
+    #[default]
+    Conversation,
+    /// Mined from a git commit subject/body (`gitcommit::mine_commit_nodes`).
+    GitCommit,
+    /// Ingested from a classified governance document (ADR/MADR/log4brains/
+    /// DECISIONS.md) via `classify_governance_doc` (Component A).
+    Governance,
+}
+
+impl DecisionOrigin {
+    /// Whether this is the default ([`DecisionOrigin::Conversation`]) — used as
+    /// the `serde(skip_serializing_if)` predicate on [`DecisionRecord::origin`]
+    /// so pre-Component-G serialized shapes are unaffected.
+    #[must_use]
+    fn is_default(&self) -> bool {
+        matches!(self, DecisionOrigin::Conversation)
+    }
+}
+
 /// A considered option within a decision.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Opt {
@@ -157,6 +190,35 @@ pub struct DecisionRecord {
     /// NDJSON corpora and the conversation path deserialize/serialize unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decided_by: Option<String>,
+    /// Which pipeline produced this record (Governance Intake, Component G).
+    /// Additive + `serde(default)` (defaults to [`DecisionOrigin::Conversation`]).
+    /// Also `skip_serializing_if` at the default: existing NDJSON corpora and
+    /// every golden snapshot fixture built before this field existed (the
+    /// conversation-adapter-driven ones, which are all `Conversation`-origin)
+    /// keep serializing byte-identically. It becomes visible in the output
+    /// only when it carries information a pre-Component-G reader didn't have
+    /// (`GitCommit`/`Governance`).
+    #[serde(default, skip_serializing_if = "DecisionOrigin::is_default")]
+    pub origin: DecisionOrigin,
+    /// A stable repo identifier the decision was ingested against — e.g. the
+    /// repo's root-relative canonical name (design decision: NOT a filesystem
+    /// absolute path, which is machine-specific; a short name/slug the indexer
+    /// already has for the repo, matching the `repo:` scope selector in the
+    /// governance-intake design doc). `None` for conversation/git-mined
+    /// decisions today (no caller sets it); ADR ingestion (a later component,
+    /// downstream of Component A's `classify_governance_doc`) is expected to
+    /// populate it. Additive + `serde(default)`, so nothing existing changes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo_identity: Option<String>,
+    /// The ADR number (from `GovernanceDoc.doc_id`) or, when the doc has no
+    /// numeric/slug id (MADR/log4brains/Y-statement docs with `doc_id: None`),
+    /// a stable hash of the doc's repo-relative file path (see
+    /// `memcortex_ingest::adr_fallback_key` in MemCortex, which is what
+    /// actually computes that hash — this field just carries whichever string
+    /// the caller decided is the ADR-or-fallback key). `None` unless
+    /// `origin == Governance`. Additive + `serde(default)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adr_key: Option<String>,
 }
 
 /// Backward-compat default for `DecisionRecord.timestamp` when reading NDJSON
