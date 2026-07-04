@@ -120,6 +120,18 @@ pub struct GovernanceDoc {
     /// log4brains filename or H1 prefix). Plain string, no cross-repo identity
     /// scheme attached here — that is a separate component's job.
     pub doc_id: Option<String>,
+    /// V1 contract, explicit-only (design doc "Anchoring" section, last
+    /// bullet): `true` only when the front matter carries an explicit
+    /// `ban:`/`policy:` key with a non-falsy value. NEVER inferred from
+    /// prose/polarity — this is the sole place v1 sets a ban true. Always
+    /// `false` when no front matter is present or the doc is not a
+    /// `DecisionRecord`.
+    pub ban: bool,
+    /// Tier 0 author-declared scope selectors (design doc "How a scope gets
+    /// attached", Tier 0): the raw `governs: [...]` front-matter list,
+    /// verbatim, unparsed/unvalidated (Component F's `scope_parse` resolves
+    /// these against the closed selector vocabulary). Empty when absent.
+    pub governs: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -338,25 +350,81 @@ struct FrontMatter {
     only_scope_or_publishing_keys: bool,
     has_publishing_keys: bool,
     has_issue_template_keys: bool,
+    /// V1 contract explicit-only ban/policy field (design doc "Anchoring"
+    /// section: "Ban/Contract minting is explicit-only in v1: front-matter
+    /// `ban:`/`policy:` field"). `true` when the raw value is YAML-ish
+    /// truthy (`true`/`yes`/`1`) OR the key is present with any non-empty,
+    /// non-falsy value (a `policy: "no committing secrets"` style string
+    /// value is ALSO a ban assertion — only explicit `false`/`no`/`0`/empty
+    /// opts out). Never inferred from prose — this is the one place v1 ever
+    /// sets a ban true, per the design doc's explicit-only mandate.
+    ban: bool,
+    /// The raw `governs: [...]` selector strings, in file order, when
+    /// present (Tier 0 anchoring — design doc "How a scope gets attached").
+    /// Supports both a flow-style list (`governs: [a, b]`) and a block-style
+    /// YAML list (`governs:` followed by indented `- a` / `- b` lines).
+    governs: Vec<String>,
+}
+
+fn empty_front_matter(present: bool) -> FrontMatter {
+    FrontMatter {
+        present,
+        status: None,
+        only_scope_or_publishing_keys: false,
+        has_publishing_keys: false,
+        has_issue_template_keys: false,
+        ban: false,
+        governs: Vec::new(),
+    }
+}
+
+/// Whether a raw front-matter scalar value reads as YAML-truthy
+/// (`true`/`yes`/`on`/`1`, case-insensitive) — used only for the explicit
+/// `ban:` boolean gate.
+fn is_yaml_truthy(val: &str) -> bool {
+    matches!(
+        val.trim().to_ascii_lowercase().as_str(),
+        "true" | "yes" | "on" | "1"
+    )
+}
+
+/// Whether a raw front-matter scalar value reads as YAML-falsy
+/// (`false`/`no`/`off`/`0`, case-insensitive, or empty).
+fn is_yaml_falsy(val: &str) -> bool {
+    let lc = val.trim().to_ascii_lowercase();
+    lc.is_empty() || matches!(lc.as_str(), "false" | "no" | "off" | "0")
+}
+
+/// Parse a flow-style YAML list value (`[a, b, "c"]`) into its element
+/// strings. Returns `None` if `val` is not bracket-delimited (the caller then
+/// tries the block-style list form instead). Total: malformed brackets/empty
+/// list yield `Some(vec![])` rather than panicking or erroring.
+fn parse_flow_list(val: &str) -> Option<Vec<String>> {
+    let t = val.trim();
+    let inner = t.strip_prefix('[')?.strip_suffix(']')?;
+    Some(
+        inner
+            .split(',')
+            .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+    )
 }
 
 fn parse_front_matter(content: &str) -> FrontMatter {
     let trimmed = content.trim_start_matches(['\u{feff}']);
     if !trimmed.starts_with("---") {
-        return FrontMatter {
-            present: false,
-            status: None,
-            only_scope_or_publishing_keys: false,
-            has_publishing_keys: false,
-            has_issue_template_keys: false,
-        };
+        return empty_front_matter(false);
     }
-    let mut lines = trimmed.lines();
-    lines.next(); // the opening '---'
+    let lines: Vec<&str> = trimmed.lines().collect();
     let mut status = None;
     let mut keys: Vec<String> = Vec::new();
     let mut closed = false;
-    for line in lines {
+    let mut ban = false;
+    let mut governs: Vec<String> = Vec::new();
+    let mut i = 1; // skip the opening '---'
+    while i < lines.len() {
+        let line = lines[i];
         let t = line.trim_end();
         if t.trim() == "---" || t.trim() == "..." {
             closed = true;
@@ -366,6 +434,7 @@ fn parse_front_matter(content: &str) -> FrontMatter {
             // Only a top-level (non-indented) key participates in the key set /
             // status extraction — nested list items indent past column 0.
             if t.starts_with(|c: char| c.is_whitespace()) {
+                i += 1;
                 continue;
             }
             let key = t[..colon].trim().to_ascii_lowercase();
@@ -376,17 +445,47 @@ fn parse_front_matter(content: &str) -> FrontMatter {
             if key == "status" && !val.is_empty() {
                 status = Some(val.to_string());
             }
+            if key == "ban" || key == "policy" {
+                // Explicit-only (V1 contract): a present key with a
+                // non-falsy value is a ban assertion, whether it is the
+                // literal boolean `true` or a free-text policy string.
+                ban = ban || !is_yaml_falsy(val) || is_yaml_truthy(val);
+            }
+            if key == "governs" {
+                if let Some(flow) = parse_flow_list(val) {
+                    governs = flow;
+                } else if val.is_empty() {
+                    // Block-style list: collect indented `- item` lines
+                    // immediately following this key.
+                    let mut j = i + 1;
+                    while j < lines.len() {
+                        let item_line = lines[j];
+                        if !item_line.starts_with(|c: char| c.is_whitespace()) {
+                            break;
+                        }
+                        let item_t = item_line.trim();
+                        if let Some(rest) = item_t.strip_prefix("- ") {
+                            let cleaned = rest.trim().trim_matches('"').trim_matches('\'');
+                            if !cleaned.is_empty() {
+                                governs.push(cleaned.to_string());
+                            }
+                            j += 1;
+                        } else if item_t == "-" {
+                            j += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    i = j;
+                    continue;
+                }
+            }
         }
+        i += 1;
     }
     if !closed {
         // Unterminated fence: not real front matter (a stray "---" divider).
-        return FrontMatter {
-            present: false,
-            status: None,
-            only_scope_or_publishing_keys: false,
-            has_publishing_keys: false,
-            has_issue_template_keys: false,
-        };
+        return empty_front_matter(false);
     }
     const SCOPE_KEYS: &[&str] = &[
         "paths",
@@ -395,6 +494,7 @@ fn parse_front_matter(content: &str) -> FrontMatter {
         "trigger",
         "alwaysapply",
         "description",
+        "governs",
     ];
     const PUBLISHING_KEYS: &[&str] = &[
         "layout",
@@ -419,6 +519,8 @@ fn parse_front_matter(content: &str) -> FrontMatter {
         only_scope_or_publishing_keys,
         has_publishing_keys,
         has_issue_template_keys,
+        ban,
+        governs,
     }
 }
 
@@ -770,6 +872,8 @@ pub fn classify_governance_doc(
             parse_quality: ParseQuality::RecallOnly,
             title: find_h1(content).unwrap_or_default(),
             doc_id: None,
+            ban: false,
+            governs: Vec::new(),
         });
     }
 
@@ -834,6 +938,16 @@ pub fn classify_governance_doc(
     let title = find_h1(content).unwrap_or_default();
     let doc_id = extract_doc_id(path, &title);
 
+    // V1 contract, explicit-only: `ban:`/`policy:` and `governs:` are read
+    // straight from front matter, never inferred from prose — carried
+    // through on every DecisionRecord branch below regardless of parse
+    // quality/status (an author can declare scope/ban on a doc this pass
+    // only manages to recall-only-parse; the fields are still honest, just
+    // not eligible to mint edges until `governance_effective` is also true —
+    // that gate lives downstream in the reconciler, not here).
+    let ban = front_matter.ban;
+    let governs = front_matter.governs.clone();
+
     match raw_hit {
         Some(raw) => {
             if let Some(canon) = canonicalize_status(&raw) {
@@ -845,6 +959,8 @@ pub fn classify_governance_doc(
                     parse_quality: ParseQuality::FullParse,
                     title,
                     doc_id,
+                    ban,
+                    governs,
                 })
             } else {
                 // A status-shaped value that isn't in our closed vocabulary
@@ -857,6 +973,8 @@ pub fn classify_governance_doc(
                     parse_quality: ParseQuality::RecallOnly,
                     title,
                     doc_id,
+                    ban,
+                    governs,
                 })
             }
         }
@@ -877,6 +995,8 @@ pub fn classify_governance_doc(
                     parse_quality: ParseQuality::FullParse,
                     title,
                     doc_id,
+                    ban,
+                    governs,
                 })
             } else if nygard_fp || sidecars.adr_dir_marker || sidecars.log4brains_marker {
                 Some(GovernanceDoc {
@@ -886,6 +1006,8 @@ pub fn classify_governance_doc(
                     parse_quality: ParseQuality::RecallOnly,
                     title,
                     doc_id,
+                    ban,
+                    governs,
                 })
             } else {
                 None
@@ -912,6 +1034,8 @@ fn classify_decisions_table(rows: &[TableRow]) -> Option<GovernanceDoc> {
                 parse_quality: ParseQuality::FullParse,
                 title,
                 doc_id: None,
+                ban: false,
+                governs: Vec::new(),
             }),
             None => Some(GovernanceDoc {
                 doc_class: DocClass::DecisionRecord,
@@ -920,6 +1044,8 @@ fn classify_decisions_table(rows: &[TableRow]) -> Option<GovernanceDoc> {
                 parse_quality: ParseQuality::RecallOnly,
                 title,
                 doc_id: None,
+                ban: false,
+                governs: Vec::new(),
             }),
         },
         None => Some(GovernanceDoc {
@@ -929,6 +1055,8 @@ fn classify_decisions_table(rows: &[TableRow]) -> Option<GovernanceDoc> {
             parse_quality: ParseQuality::RecallOnly,
             title,
             doc_id: None,
+            ban: false,
+            governs: Vec::new(),
         }),
     }
 }
@@ -1619,5 +1747,214 @@ None.
         let a = classify("doc/adr/0001-record-architecture-decisions.md", content);
         let b = classify("doc/adr/0001-record-architecture-decisions.md", content);
         assert_eq!(a, b);
+    }
+
+    // -- V1 contract: explicit-only `ban:`/`policy:` front matter ----------
+
+    /// An accepted ADR with `ban: true` front matter surfaces `ban: true` —
+    /// the ONLY v1 mechanism that ever sets it (never inferred from prose).
+    #[test]
+    fn front_matter_ban_true_is_honored() {
+        let content = "\
+---
+status: accepted
+ban: true
+---
+
+# Never commit secrets to the repo
+
+## Context
+
+We had an incident.
+
+## Decision
+
+Secrets must never be committed.
+
+## Consequences
+
+CI scans for them.
+";
+        let d = classify("docs/adr/0005-no-secrets.md", content).unwrap();
+        assert!(d.ban, "explicit ban: true front matter must set GovernanceDoc::ban");
+        assert!(d.governance_effective);
+    }
+
+    /// `policy:` is an accepted synonym for `ban:`, and a non-empty string
+    /// value (not just literal `true`) still counts as an assertion.
+    #[test]
+    fn front_matter_policy_string_value_is_honored_as_a_ban() {
+        let content = "\
+---
+status: accepted
+policy: no disabling TLS verification
+---
+
+# Never disable TLS verification
+
+## Context
+
+An incident happened.
+
+## Decision
+
+TLS verification must always be on.
+
+## Consequences
+
+None.
+";
+        let d = classify("docs/adr/0006-tls-verification.md", content).unwrap();
+        assert!(d.ban, "a non-falsy policy: value must be honored as a ban assertion");
+    }
+
+    /// Absence of `ban:`/`policy:` must never be inferred true from ban-shaped
+    /// prose — explicit-only per the V1 contract.
+    #[test]
+    fn ban_is_false_when_front_matter_omits_it_even_with_ban_shaped_prose() {
+        let content = "\
+# 7. Never use raw SQL string concatenation
+
+## Status
+
+Accepted
+
+## Context
+
+SQL injection risk.
+
+## Decision
+
+We will never allow raw string-concatenated SQL.
+
+## Consequences
+
+Use the query builder everywhere.
+";
+        let d = classify("docs/adr/0007-no-raw-sql.md", content).unwrap();
+        assert!(
+            !d.ban,
+            "ban-shaped prose without an explicit ban:/policy: field must never set ban=true"
+        );
+    }
+
+    /// Explicit `ban: false` (or falsy variants) never sets the flag.
+    #[test]
+    fn front_matter_ban_false_is_honored_as_no_ban() {
+        let content = "\
+---
+status: accepted
+ban: false
+---
+
+# Use Postgres for the orders service
+
+## Context
+
+Ctx.
+
+## Decision
+
+Use Postgres.
+
+## Consequences
+
+None.
+";
+        let d = classify("docs/adr/0008-use-postgres.md", content).unwrap();
+        assert!(!d.ban);
+    }
+
+    // -- V1 contract / Tier 0: explicit `governs:` front matter -------------
+
+    /// A flow-style `governs: [a, b]` list is carried through verbatim.
+    #[test]
+    fn front_matter_governs_flow_list_is_carried_through() {
+        let content = "\
+---
+status: accepted
+governs: [lang:ts, path:apps/web/**]
+---
+
+# Use strict null checks in the frontend
+
+## Context
+
+Ctx.
+
+## Decision
+
+Enable strict null checks.
+
+## Consequences
+
+Fewer null-pointer bugs.
+";
+        let d = classify("docs/adr/0009-strict-null-checks.md", content).unwrap();
+        assert_eq!(
+            d.governs,
+            vec!["lang:ts".to_string(), "path:apps/web/**".to_string()]
+        );
+    }
+
+    /// A block-style YAML list under `governs:` is also carried through.
+    #[test]
+    fn front_matter_governs_block_list_is_carried_through() {
+        let content = "\
+---
+status: accepted
+governs:
+  - service:billing-api
+  - path:services/billing/**
+---
+
+# Billing must use idempotency keys
+
+## Context
+
+Ctx.
+
+## Decision
+
+All billing writes require an idempotency key.
+
+## Consequences
+
+None.
+";
+        let d = classify("docs/adr/0010-billing-idempotency.md", content).unwrap();
+        assert_eq!(
+            d.governs,
+            vec![
+                "service:billing-api".to_string(),
+                "path:services/billing/**".to_string()
+            ]
+        );
+    }
+
+    /// No `governs:` key at all ⇒ empty, never invented.
+    #[test]
+    fn governs_is_empty_when_front_matter_omits_it() {
+        let content = "\
+---
+status: accepted
+---
+
+# Use Postgres for the orders service
+
+## Context
+
+Ctx.
+
+## Decision
+
+Use Postgres.
+
+## Consequences
+
+None.
+";
+        let d = classify("docs/adr/0011-use-postgres.md", content).unwrap();
+        assert!(d.governs.is_empty());
     }
 }
