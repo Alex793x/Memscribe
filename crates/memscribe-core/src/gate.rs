@@ -11,6 +11,7 @@ use crate::intent::IntentFilter;
 use crate::node::{CommitmentMarker, MarkerCategory};
 use crate::prose::ProseFilter;
 use regex::Regex;
+use std::sync::{Arc, OnceLock};
 
 /// How strongly a fired marker should elevate. The gate stays a pure lexical
 /// matcher; this only governs whether a match *seeds a candidate Decision* or
@@ -268,7 +269,7 @@ pub fn default_rules() -> Vec<(&'static str, MarkerCategory, Tier, &'static str)
 /// hygiene filter applied to a turn before its markers are evaluated.
 #[derive(Debug)]
 pub struct CommitmentGate {
-    rules: Vec<GateRule>,
+    rules: Arc<Vec<GateRule>>,
     prose: ProseFilter,
     intent: IntentFilter,
 }
@@ -287,7 +288,15 @@ impl CommitmentGate {
     /// are exercised by tests; a malformed default is a build-breaking bug.
     #[must_use]
     pub fn default_table() -> Self {
-        Self::from_quads(default_rules()).expect("default gate rules must compile")
+        static DEFAULT_RULES: OnceLock<Arc<Vec<GateRule>>> = OnceLock::new();
+        let rules = DEFAULT_RULES.get_or_init(|| {
+            Arc::new(Self::compile_rules(default_rules()).expect("default gate rules must compile"))
+        });
+        Self {
+            rules: Arc::clone(rules),
+            prose: ProseFilter::default_filter(),
+            intent: IntentFilter::default_filter(),
+        }
     }
 
     /// Build a gate from `(id, category, pattern)` triples (config-driven). Every
@@ -314,6 +323,16 @@ impl CommitmentGate {
     pub fn from_quads<S: AsRef<str>>(
         quads: impl IntoIterator<Item = (S, MarkerCategory, Tier, S)>,
     ) -> Result<Self, regex::Error> {
+        Ok(Self {
+            rules: Arc::new(Self::compile_rules(quads)?),
+            prose: ProseFilter::default_filter(),
+            intent: IntentFilter::default_filter(),
+        })
+    }
+
+    fn compile_rules<S: AsRef<str>>(
+        quads: impl IntoIterator<Item = (S, MarkerCategory, Tier, S)>,
+    ) -> Result<Vec<GateRule>, regex::Error> {
         let mut rules = Vec::new();
         for (id, category, tier, pattern) in quads {
             let pattern = Regex::new(&format!("(?i){}", pattern.as_ref()))?;
@@ -324,11 +343,7 @@ impl CommitmentGate {
                 pattern,
             });
         }
-        Ok(CommitmentGate {
-            rules,
-            prose: ProseFilter::default_filter(),
-            intent: IntentFilter::default_filter(),
-        })
+        Ok(rules)
     }
 
     /// The number of rules in the table.
@@ -342,7 +357,7 @@ impl CommitmentGate {
     #[must_use]
     pub fn evaluate(&self, text: &str) -> Vec<CommitmentMarker> {
         let mut out = Vec::new();
-        for rule in &self.rules {
+        for rule in self.rules.iter() {
             if let Some(m) = rule.pattern.find(text) {
                 out.push(CommitmentMarker {
                     rule_id: rule.id.clone(),
@@ -464,6 +479,18 @@ mod tests {
     fn default_table_compiles_and_has_rules() {
         let gate = CommitmentGate::default_table();
         assert!(gate.rule_count() >= 8);
+    }
+
+    #[test]
+    fn default_table_reuses_one_compiled_regex_table() {
+        let first = CommitmentGate::default_table();
+        let second = CommitmentGate::default_table();
+
+        assert!(Arc::ptr_eq(&first.rules, &second.rules));
+        assert_eq!(
+            first.evaluate("Let's go with Postgres for storage."),
+            second.evaluate("Let's go with Postgres for storage.")
+        );
     }
 
     #[test]
