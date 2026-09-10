@@ -51,6 +51,7 @@ zstd = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
 
 [dev-dependencies]
+rusqlite = { workspace = true, features = ["hooks"] }
 proptest = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
