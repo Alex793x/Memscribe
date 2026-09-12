@@ -39,6 +39,23 @@ env:
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
 
 jobs:
+  cursor-regression:
+    name: Cursor capture (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.96.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Verify Cursor capture and indexed lookups
+        run: cargo test -p memscribe-adapters --no-default-features --features cursor --locked
+
   # 1. The deterministic test suite: unit + golden + conformance + property.
   test:
     name: test (workspace, all-features)

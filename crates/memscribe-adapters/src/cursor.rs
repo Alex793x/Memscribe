@@ -432,8 +432,9 @@ fn col_bytes(row: &rusqlite::Row<'_>, idx: usize) -> rusqlite::Result<Vec<u8>> {
 
 /// Load all `composerData:*` rows. Errors if `cursorDiskKV` is missing.
 fn load_composers(conn: &rusqlite::Connection) -> rusqlite::Result<Vec<Composer>> {
-    let mut stmt =
-        conn.prepare("SELECT value FROM cursorDiskKV WHERE key LIKE 'composerData:%'")?;
+    let mut stmt = conn.prepare(
+        "SELECT value FROM cursorDiskKV WHERE key >= 'composerData:' AND key < 'composerData;'",
+    )?;
     let rows = stmt.query_map([], |row| {
         // Values are stored as TEXT (JSON) in current builds, BLOB in older
         // ones; read as bytes either way (see `col_bytes`).
@@ -482,15 +483,15 @@ fn load_composers(conn: &rusqlite::Connection) -> rusqlite::Result<Vec<Composer>
 
 /// Load all `bubbleId:<composerId>:*` rows for one composer.
 fn load_bubbles(conn: &rusqlite::Connection, composer_id: &str) -> Vec<Bubble> {
-    // `escape '\'` guards composer ids that contain LIKE metacharacters (`%`/`_`).
-    let prefix = format!("bubbleId:{}:", escape_like(composer_id));
-    let like = format!("{prefix}%");
+    // ':' and ';' bound the exact prefix in the store's binary key index.
+    let prefix = format!("bubbleId:{composer_id}:");
+    let prefix_end = format!("bubbleId:{composer_id};");
     let mut stmt =
-        match conn.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE ?1 ESCAPE '\\'") {
+        match conn.prepare("SELECT key, value FROM cursorDiskKV WHERE key >= ?1 AND key < ?2") {
             Ok(s) => s,
             Err(_) => return Vec::new(),
         };
-    let rows = stmt.query_map([&like], |row| {
+    let rows = stmt.query_map([&prefix, &prefix_end], |row| {
         let key: String = row.get(0)?;
         // `value` is TEXT in current builds — read tolerantly (see `col_bytes`).
         let bytes = col_bytes(row, 1)?;
@@ -742,18 +743,6 @@ fn decode_json_string(v: Option<&Value>) -> Option<Value> {
 fn json_as_i64(v: &Value) -> Option<i64> {
     v.as_i64()
         .or_else(|| v.as_str().and_then(|s| s.trim().parse::<i64>().ok()))
-}
-
-/// Escape `%`, `_`, and `\` for a SQLite `LIKE … ESCAPE '\'` prefix match.
-fn escape_like(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        if matches!(c, '%' | '_' | '\\') {
-            out.push('\\');
-        }
-        out.push(c);
-    }
-    out
 }
 
 /// Serialize a normalized record to a [`RawRecord`] with stable provenance.
@@ -1167,6 +1156,75 @@ fn ts_for(obj: &serde_json::Map<String, Value>) -> memscribe_core::Timestamp {
 mod tests {
     use super::*;
     use memscribe_core::SourceLocation;
+
+    fn populated_key_store() -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE cursorDiskKV (key TEXT UNIQUE, value BLOB);
+             WITH RECURSIVE entries(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM entries WHERE n < 10000)
+             INSERT INTO cursorDiskKV SELECT 'unrelated:' || n, '{}' FROM entries;",
+        ).unwrap();
+        conn
+    }
+
+    #[test]
+    fn composer_lookup_does_not_scan_unrelated_rows() {
+        let conn = populated_key_store();
+        conn.execute(
+            "INSERT INTO cursorDiskKV VALUES (?1, ?2)",
+            rusqlite::params!["composerData:session", r#"{"composerId":"session"}"#],
+        )
+        .unwrap();
+        conn.progress_handler(1000, Some(|| true));
+
+        let composers = load_composers(&conn).expect("indexed lookup fits the instruction budget");
+
+        assert_eq!(composers.len(), 1);
+        assert_eq!(composers[0].composer_id, "session");
+    }
+
+    #[test]
+    fn bubble_lookup_does_not_scan_unrelated_rows() {
+        let conn = populated_key_store();
+        conn.execute(
+            "INSERT INTO cursorDiskKV VALUES (?1, ?2)",
+            rusqlite::params!["bubbleId:session:message", r#"{"text":"preserved"}"#],
+        )
+        .unwrap();
+        conn.progress_handler(1000, Some(|| true));
+
+        let bubbles = load_bubbles(&conn, "session");
+
+        assert_eq!(
+            bubbles.len(),
+            1,
+            "indexed lookup fits the instruction budget"
+        );
+        assert_eq!(bubbles[0].bubble_id, "message");
+    }
+
+    #[test]
+    fn bubble_lookup_preserves_literal_ids_and_excludes_adjacent_prefixes() {
+        let conn = populated_key_store();
+        let composer_id = "session%_\\[é]:nested";
+        for id in [
+            composer_id.to_string(),
+            format!("{composer_id}extra"),
+            "other".into(),
+        ] {
+            conn.execute(
+                "INSERT INTO cursorDiskKV VALUES (?1, ?2)",
+                rusqlite::params![format!("bubbleId:{id}:message"), r#"{"text":"preserved"}"#],
+            )
+            .unwrap();
+        }
+
+        let bubbles = load_bubbles(&conn, composer_id);
+
+        assert_eq!(bubbles.len(), 1);
+        assert_eq!(bubbles[0].bubble_id, "message");
+        assert_eq!(bubbles[0].value["text"], "preserved");
+    }
 
     fn raw(s: &str, line: u64) -> RawRecord {
         RawRecord::from_line(s, SourceLocation::new("cursor.jsonl", 0, line))

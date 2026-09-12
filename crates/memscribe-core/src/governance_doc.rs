@@ -1776,7 +1776,10 @@ Secrets must never be committed.
 CI scans for them.
 ";
         let d = classify("docs/adr/0005-no-secrets.md", content).unwrap();
-        assert!(d.ban, "explicit ban: true front matter must set GovernanceDoc::ban");
+        assert!(
+            d.ban,
+            "explicit ban: true front matter must set GovernanceDoc::ban"
+        );
         assert!(d.governance_effective);
     }
 
@@ -1805,7 +1808,10 @@ TLS verification must always be on.
 None.
 ";
         let d = classify("docs/adr/0006-tls-verification.md", content).unwrap();
-        assert!(d.ban, "a non-falsy policy: value must be honored as a ban assertion");
+        assert!(
+            d.ban,
+            "a non-falsy policy: value must be honored as a ban assertion"
+        );
     }
 
     /// Absence of `ban:`/`policy:` must never be inferred true from ban-shaped
